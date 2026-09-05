@@ -1,0 +1,10 @@
+{
+  "name": "فاکتورچی (Factorchi)",
+  "description": "هوشمندترین سیستم صدور فاکتور صوتی و مدیریت مالی برای کسب‌وکارها و فریلنسرها",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

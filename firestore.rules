@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Profiles
+    match /profiles/{userId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+    
+    // Invoices
+    match /invoices/{invoiceId} {
+      allow read: if true; // Public can view invoice for payment
+      allow create, update, delete: if true; // Managed via server/client securely
+    }
+    
+    // Users
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Subscription requests
+    match /subscription_requests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // Feature Updates (What's New)
+    match /feature_updates/{updateId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

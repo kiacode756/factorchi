@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account in Factorchi",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "password": { "type": "string" },
+        "profile": { "type": "object" }
+      },
+      "required": ["id", "email"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Invoice created in Factorchi",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": "string" },
+        "date": { "type": "string" },
+        "buyer_name": { "type": "string" },
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "number", "total"]
+    },
+    "FeatureUpdate": {
+      "title": "FeatureUpdate",
+      "description": "New feature announcement update",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "badge": { "type": "string" },
+        "badgeColor": { "type": "string" },
+        "icon": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "title", "description"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User accounts and authentication data"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Invoices data"
+    },
+    "/feature_updates/{updateId}": {
+      "schema": "FeatureUpdate",
+      "description": "What's new feature announcements"
+    }
+  }
+}

@@ -1,0 +1,184 @@
+{
+  "users": [
+    {
+      "password": "admin1234",
+      "id": "usr-admin",
+      "email": "bagherikiarash74@gmail.com",
+      "profile": {
+        "account_number": "",
+        "business_name": "استودیو طراحی و توسعه کیارش",
+        "role": "admin",
+        "card_holder_name": "کیارش باقری",
+        "card_number": "6219861406993534",
+        "sheba_number": "",
+        "created_at": "2026-07-31T06:47:50.345Z",
+        "default_notes": "",
+        "full_name": "کیارش باقری",
+        "subscription_expires_at": null,
+        "updated_at": "2026-08-30T06:55:25.793Z",
+        "phone": "09130481639",
+        "subscription_status": "active",
+        "bank_name": "سامان",
+        "id": "usr-admin",
+        "email": "bagherikiarash74@gmail.com"
+      },
+      "updated_at": "2026-09-01T06:21:25.451Z"
+    },
+    {
+      "id": "usr-1788163689045",
+      "updated_at": "2026-08-31T08:09:31.095Z",
+      "password": "kiSne1-hudvat-bexmoq",
+      "profile": {
+        "business_name": "سالن زیبایی",
+        "full_name": "najla",
+        "role": "user",
+        "phone": "09120000",
+        "subscription_status": "trial",
+        "id": "usr-1788163689045",
+        "email": "najla@gmail.com",
+        "subscription_expires_at": "2026-09-07T08:08:08.991Z",
+        "created_at": "2026-08-31T08:08:08.991Z",
+        "trial_started_at": "2026-08-31T08:08:08.991Z",
+        "trial_ends_at": "2026-09-07T08:08:08.991Z",
+        "account_number": "",
+        "card_holder_name": "najla",
+        "card_number": "603799815431",
+        "updated_at": "2026-08-31T08:09:31.094Z",
+        "sheba_number": "",
+        "bank_name": "ملی",
+        "default_notes": ""
+      },
+      "email": "najla@gmail.com"
+    }
+  ],
+  "invoices": [
+    {
+      "discount": 850000,
+      "user_id": "usr-1788163689045",
+      "total_amount": 3400000,
+      "payment_method": "card_to_card",
+      "discount_type": "percent",
+      "customer_name": "خانم احمدی",
+      "discount_percent": 20,
+      "notes": "",
+      "created_at": "2026-08-31T08:11:38.018Z",
+      "payment_status": "paid",
+      "invoice_number": "FC-1403-101",
+      "voice_input_method": "text",
+      "updated_at": "2026-08-31T08:54:20.309Z",
+      "status": "paid",
+      "payment_amount": 3400000,
+      "payment_date": "2026-08-31T08:54:20.309Z",
+      "id": "inv-101",
+      "voice_input_used": true,
+      "payment_url": "https://factorchi.ai.studio/payment/inv-101",
+      "tax_rate": 0,
+      "sent_via_whatsapp": false,
+      "items": [
+        {
+          "id": "itm-1788163872200-0",
+          "name": "کرم پودر",
+          "quantity": 2,
+          "unit_price": 2000000
+        },
+        {
+          "id": "itm-1788163872200-1",
+          "name": "کرم ضد افتاب",
+          "quantity": 1,
+          "unit_price": 250000
+        }
+      ],
+      "customer_phone": "09136516008"
+    },
+    {
+      "created_at": "2026-08-31T09:35:27.896Z",
+      "id": "inv-102",
+      "discount": 79500,
+      "customer_name": "اقای حسنی",
+      "payment_amount": 1510500,
+      "discount_type": "percent",
+      "voice_input_used": true,
+      "payment_url": "https://factorchi.ai.studio/payment/inv-102",
+      "customer_phone": "09136516008",
+      "items": [
+        {
+          "id": "itm-1788168904032-0",
+          "name": "کرم ابرسان",
+          "quantity": 2,
+          "unit_price": 670000
+        },
+        {
+          "id": "itm-1788168904032-1",
+          "name": "ضد افتاب",
+          "quantity": 1,
+          "unit_price": 250000
+        }
+      ],
+      "total_amount": 1510500,
+      "sent_via_whatsapp": false,
+      "voice_input_method": "text",
+      "tax_rate": 0,
+      "user_id": "usr-1788163689045",
+      "status": "sent",
+      "updated_at": "2026-08-31T09:35:27.896Z",
+      "payment_method": "card_to_card",
+      "discount_percent": 5,
+      "notes": "",
+      "invoice_number": "FC-1403-102",
+      "payment_status": "unpaid"
+    }
+  ],
+  "subscription_requests": [],
+  "feature_updates": [
+    {
+      "id": "english-card-numbers",
+      "title": "نمایش استاندارد و انگلیسی شماره کارت در صفحه پرداخت",
+      "description": "خوانایی بی‌نقص شماره کارت بانکی با ارقام انگلیسی، قالب‌بندی ۴ رقمی چپ به راست (LTR) و کپی تمیز جهت جلوگیری از به‌هم‌ریختگی و سهولت واریز مشتریان.",
+      "badge": "بهبود پرداخت",
+      "badgeColor": "teal",
+      "icon": "zap",
+      "actionText": "مشاهده تنظیمات بانکی",
+      "actionTab": "settings",
+      "date": "شهریور ۱۴۰۵",
+      "created_at": "2026-09-01T07:45:00.000Z",
+      "ai_generated": true
+    },
+    {
+      "actionText": "امتحان صدور صوتی",
+      "icon": "mic",
+      "badge": "جدید",
+      "date": "شهریور ۱۴۰۵",
+      "badgeColor": "teal",
+      "created_at": "2026-08-31T09:03:22.461Z",
+      "description": "پردازش مستقیم ویس‌های ضبط‌شده با هوش مصنوعی جمنای؛ تفکیک خودکار اقلام، مقادیر، درصد تخفیف و نام مشتری با دقت بالا.",
+      "id": "gemini-voice-v2",
+      "title": "صدور فوق‌دقیق فاکتور با صوت (هوش مصنوعی Gemini)",
+      "actionTab": "new-invoice",
+      "ai_generated": true
+    },
+    {
+      "ai_generated": true,
+      "badge": "ارتقا",
+      "description": "مشاهده آنلاین تصویر فیش پرداختی مشتریان و تأیید یا رد با یک کلیک، همگام با به‌روزرسانی آنی دریافتی‌های امروز در داشبورد.",
+      "icon": "shield",
+      "title": "تأیید سریع فیش و تسویه لحظه‌ای فاکتورها",
+      "actionTab": "invoices",
+      "actionText": "مدیریت فاکتورها",
+      "created_at": "2026-08-31T09:03:22.461Z",
+      "badgeColor": "emerald",
+      "id": "instant-payment-verify",
+      "date": "شهریور ۱۴۰۵"
+    },
+    {
+      "description": "محاسبه دقیق حاشیه سود خالص، تفکیک هزینه‌های جاری و مقایسه هوشمند عملکرد فروش ماهانه نسبت به ماه قبل.",
+      "icon": "chart",
+      "ai_generated": true,
+      "badgeColor": "indigo",
+      "created_at": "2026-08-31T09:03:22.461Z",
+      "title": "داشبورد پیشرفته سود و زیان و تحلیل مالی",
+      "date": "شهریور ۱۴۰۵",
+      "badge": "امکانات مالی",
+      "id": "pnl-analytics"
+    }
+  ]
+}
