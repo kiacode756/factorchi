@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -17,12 +17,22 @@ import { RealtimeToast } from './components/RealtimeToast';
 import { LoginPage } from './components/auth/LoginPage';
 import { RegisterPage } from './components/auth/RegisterPage';
 import { ForgotPasswordPage } from './components/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
+import { OnboardingTour } from './components/OnboardingTour';
 import { Invoice, Profile, SubscriptionRequest, NavigationTab, RealtimeNotification } from './types';
 import { realtime } from './lib/realtime';
 import { sound } from './lib/sound';
-import { Sparkles, X } from 'lucide-react';
+import { fetchWithRetry } from './lib/utils';
+import { safeStorage } from './lib/safeStorage';
+import { Sparkles, X, Lock, CreditCard } from 'lucide-react';
 
-type AuthView = 'login' | 'register' | 'forgot-password' | null;
+type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password' | null;
+
+export function isAdminUser(p?: Profile | null): boolean {
+  if (!p) return false;
+  const email = (p.email || '').toLowerCase();
+  return p.role === 'admin' || email === 'bagherikiarash74@gmail.com' || email === 'kimiabg2013@gmail.com';
+}
 
 export default function App() {
   // Theme state (Dark / Light) with Next-themes / LocalStorage compatibility
@@ -50,8 +60,15 @@ export default function App() {
   // Authentication State
   const [profile, setProfile] = useState<Profile | null>(() => {
     try {
-      const savedUser = localStorage.getItem('factorchi_user') || sessionStorage.getItem('factorchi_user');
-      if (savedUser) return JSON.parse(savedUser);
+      const savedUser = safeStorage.getItem('factorchi_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed && isAdminUser(parsed)) {
+          parsed.role = 'admin';
+          parsed.subscription_status = 'active';
+        }
+        return parsed;
+      }
     } catch (e) {
       console.error(e);
     }
@@ -59,15 +76,41 @@ export default function App() {
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const savedAuth = localStorage.getItem('factorchi_auth') || sessionStorage.getItem('factorchi_auth');
-    const savedUser = localStorage.getItem('factorchi_user') || sessionStorage.getItem('factorchi_user');
-    return savedAuth === 'true' && !!savedUser;
+    try {
+      const savedAuth = safeStorage.getItem('factorchi_auth');
+      const savedUser = safeStorage.getItem('factorchi_user');
+      if (savedAuth === 'true' && savedUser) return true;
+      if (savedUser) {
+        try {
+          const parsed = JSON.parse(savedUser);
+          if (parsed && parsed.id) return true;
+        } catch {}
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return false;
+  });
+
+  const [resetToken, setResetToken] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('token') || '';
+    }
+    return '';
   });
 
   const [authView, setAuthView] = useState<AuthView>(() => {
-    const savedAuth = localStorage.getItem('factorchi_auth') || sessionStorage.getItem('factorchi_auth');
-    const savedUser = localStorage.getItem('factorchi_user') || sessionStorage.getItem('factorchi_user');
-    return savedAuth === 'true' && !!savedUser ? null : 'login';
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const params = new URLSearchParams(window.location.search);
+      if (path.includes('/auth/reset-password') || params.get('token')) {
+        return 'reset-password';
+      }
+    }
+    const savedAuth = safeStorage.getItem('factorchi_auth');
+    const savedUser = safeStorage.getItem('factorchi_user');
+    return (savedAuth === 'true' && !!savedUser) || !!savedUser ? null : 'login';
   });
 
   // Active Navigation Tab
@@ -93,6 +136,12 @@ export default function App() {
   });
   const [activeToast, setActiveToast] = useState<RealtimeNotification | null>(null);
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(true);
+  // Welcome Notification Toast
+  const [welcomeToast, setWelcomeToast] = useState(true);
+  // Onboarding Guided Tour State
+  const [showTour, setShowTour] = useState(false);
+  // Guard against duplicate in-flight invoice submissions
+  const isSavingInvoiceRef = useRef(false);
 
   // Sync notifications to localStorage
   useEffect(() => {
@@ -110,8 +159,32 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [activeToast]);
 
-  // Welcome Notification Toast
-  const [welcomeToast, setWelcomeToast] = useState(true);
+  // Check if current user is newly registered (not in database before) and hasn't completed the onboarding tour yet
+  useEffect(() => {
+    if (!isAuthenticated || !profile?.id) return;
+
+    try {
+      const isNewUser = localStorage.getItem('factorchi_is_new_user') === 'true';
+      const tourAlreadyCompleted = 
+        profile.tour_completed === true || 
+        localStorage.getItem(`factorchi_tour_completed_${profile.id}`) === 'true';
+
+      // The onboarding tour ONLY automatically appears for newly registered accounts,
+      // NOT for existing database accounts on login!
+      if (isNewUser && !tourAlreadyCompleted) {
+        const timer = setTimeout(() => {
+          setShowTour(true);
+        }, 600);
+        return () => clearTimeout(timer);
+      }
+    } catch (e) {
+      console.error('Error checking tour completion status:', e);
+    }
+  }, [isAuthenticated, profile?.id, profile?.tour_completed]);
+
+  const handleStartTour = () => {
+    setShowTour(true);
+  };
 
   // Real-time SSE Connection & Event Dispatcher
   useEffect(() => {
@@ -130,8 +203,9 @@ export default function App() {
       const { type, payload } = event;
 
       if (type === 'payment:receipt_submitted') {
-        // Ensure event belongs to this user
-        if (payload.invoice?.user_id && profile?.id && payload.invoice.user_id !== profile.id) {
+        // Strictly verify that event belongs to the currently logged in user
+        const invoiceUserId = payload.invoice?.user_id || payload.userId;
+        if (!invoiceUserId || !profile?.id || invoiceUserId !== profile.id) {
           return;
         }
 
@@ -181,8 +255,8 @@ export default function App() {
         setActiveToast(newNotif);
       } else if (type === 'invoice:updated') {
         if (payload.invoice) {
-          // Strictly verify owner
-          if (profile?.id && payload.invoice.user_id && payload.invoice.user_id !== profile.id) {
+          // Strictly verify owner: never modify state for another user's invoice
+          if (!profile?.id || payload.invoice.user_id !== profile.id) {
             return;
           }
 
@@ -207,8 +281,8 @@ export default function App() {
         }
       } else if (type === 'invoice:created') {
         if (payload.invoice) {
-          // Strictly verify owner
-          if (profile?.id && payload.invoice.user_id && payload.invoice.user_id !== profile.id) {
+          // Strictly verify owner: never inject another user's invoice
+          if (!profile?.id || payload.invoice.user_id !== profile.id) {
             return;
           }
 
@@ -220,7 +294,8 @@ export default function App() {
           });
         }
       } else if (type === 'invoice:deleted') {
-        if (payload.user_id && profile?.id && payload.user_id !== profile.id) {
+        const deletedOwnerId = payload.user_id || payload.userId;
+        if (deletedOwnerId && profile?.id && deletedOwnerId !== profile.id) {
           return;
         }
         if (payload.invoice_id) {
@@ -274,7 +349,7 @@ export default function App() {
       } else if (type === 'profile:updated') {
         if (payload.profile && (payload.user_id === profile.id || payload.profile.id === profile.id)) {
           setProfile(payload.profile);
-          localStorage.setItem('factorchi_user', JSON.stringify(payload.profile));
+          safeStorage.setItem('factorchi_user', JSON.stringify(payload.profile));
         }
       }
     });
@@ -299,7 +374,12 @@ export default function App() {
 
     // Auth route handling
     if (!authenticated) {
-      if (path === '/auth/register') {
+      if (path === '/auth/reset-password' || path.startsWith('/auth/reset-password') || window.location.search.includes('token=')) {
+        const params = new URLSearchParams(window.location.search);
+        const tokenFromUrl = params.get('token');
+        if (tokenFromUrl) setResetToken(tokenFromUrl);
+        setAuthView('reset-password');
+      } else if (path === '/auth/register') {
         setAuthView('register');
       } else if (path === '/auth/forgot-password') {
         setAuthView('forgot-password');
@@ -318,7 +398,8 @@ export default function App() {
     if (path === '/403') {
       setCurrentTab('403');
     } else if (path === '/admin' || path.startsWith('/admin/')) {
-      if (!activeProfile || activeProfile.role !== 'admin' || activeProfile.subscription_status !== 'active') {
+      const isUserAdmin = isAdminUser(activeProfile);
+      if (!activeProfile || !isUserAdmin) {
         setCurrentTab('403');
         window.history.replaceState({}, '', '/403');
       } else {
@@ -351,7 +432,8 @@ export default function App() {
   // Tab navigation middleware
   const navigateToTab = (tab: NavigationTab) => {
     if (tab === 'admin') {
-      if (!profile || profile.role !== 'admin' || profile.subscription_status !== 'active') {
+      const isUserAdmin = isAdminUser(profile);
+      if (!profile || !isUserAdmin) {
         setCurrentTab('403');
         window.history.pushState({}, '', '/403');
       } else {
@@ -378,33 +460,51 @@ export default function App() {
         'x-user-id': activeUser.id,
       };
 
-      // Invoices for this specific user
-      const invRes = await fetch('/api/invoices', { headers });
-      if (invRes.ok) {
-        const json = await invRes.json();
-        if (json.invoices) setInvoices(json.invoices);
-      }
+      const isUserAdmin = isAdminUser(activeUser);
 
-      // Check Session & Profile
-      const profRes = await fetch('/api/auth/session', { headers });
-      if (profRes.ok) {
-        const json = await profRes.json();
-        if (json.profile) {
-          setProfile(json.profile);
-          localStorage.setItem('factorchi_user', JSON.stringify(json.profile));
+      // Load invoices, session, and admin requests in parallel with retry resilience
+      const [invRes, profRes, reqRes] = await Promise.all([
+        fetchWithRetry('/api/invoices', { headers }),
+        fetchWithRetry('/api/auth/session', { headers }),
+        isUserAdmin ? fetchWithRetry('/api/admin/subscription-requests', { headers }) : Promise.resolve(null),
+      ]);
+
+      if (invRes && invRes.ok) {
+        try {
+          const json = await invRes.json();
+          if (json.invoices) setInvoices(json.invoices);
+        } catch {
+          // ignore json parse error on abnormal response
         }
       }
 
-      // Admin requests (if admin with active subscription)
-      if (activeUser.role === 'admin' && activeUser.subscription_status === 'active') {
-        const reqRes = await fetch('/api/admin/subscription-requests', { headers });
-        if (reqRes.ok) {
+      if (profRes && profRes.ok) {
+        try {
+          const json = await profRes.json();
+          if (json.profile) {
+            const fetchedProfile = json.profile;
+            if (isAdminUser(fetchedProfile)) {
+              fetchedProfile.role = 'admin';
+              fetchedProfile.subscription_status = 'active';
+            }
+            setProfile(fetchedProfile);
+            safeStorage.setItem('factorchi_user', JSON.stringify(fetchedProfile));
+          }
+        } catch {
+          // ignore json parse error on abnormal response
+        }
+      }
+
+      if (reqRes && reqRes.ok) {
+        try {
           const json = await reqRes.json();
           if (json.requests) setSubscriptionRequests(json.requests);
+        } catch {
+          // ignore json parse error on abnormal response
         }
       }
-    } catch (e) {
-      console.error('Error loading data:', e);
+    } catch (e: any) {
+      console.warn('[App] Notice loading initial data:', e?.message || e);
     }
   };
 
@@ -416,22 +516,29 @@ export default function App() {
 
   // Auth Handlers
   const handleLoginSuccess = (userProfile: Profile, remember: boolean = true) => {
+    if (isAdminUser(userProfile)) {
+      userProfile.role = 'admin';
+      userProfile.subscription_status = 'active';
+    }
     setProfile(userProfile);
     setIsAuthenticated(true);
     setAuthView(null);
     
-    // Persist session to localStorage (and also sessionStorage for resilience against refresh)
-    localStorage.setItem('factorchi_auth', 'true');
-    localStorage.setItem('factorchi_user', JSON.stringify(userProfile));
-    sessionStorage.setItem('factorchi_auth', 'true');
-    sessionStorage.setItem('factorchi_user', JSON.stringify(userProfile));
+    // Persist session to multi-tier safeStorage (localStorage, sessionStorage, cookie)
+    safeStorage.setItem('factorchi_auth', 'true');
+    safeStorage.setItem('factorchi_user', JSON.stringify(userProfile));
+
+    // Existing database user logged in: ensure tour is marked as completed and is_new_user is cleared
+    safeStorage.removeItem('factorchi_is_new_user');
+    safeStorage.setItem(`factorchi_tour_completed_${userProfile.id}`, 'true');
 
     // Handle post-login redirect query parameter
     const params = new URLSearchParams(window.location.search);
     const redirectTarget = params.get('redirect');
 
+    const isUserAdmin = isAdminUser(userProfile);
     if (redirectTarget && redirectTarget.startsWith('/admin')) {
-      if (userProfile.role === 'admin' && userProfile.subscription_status === 'active') {
+      if (isUserAdmin) {
         setCurrentTab('admin');
         window.history.pushState({}, '', '/admin/payments');
       } else {
@@ -461,8 +568,11 @@ export default function App() {
     setProfile(userProfile);
     setIsAuthenticated(true);
     setAuthView(null);
-    localStorage.setItem('factorchi_auth', 'true');
-    localStorage.setItem('factorchi_user', JSON.stringify(userProfile));
+    safeStorage.setItem('factorchi_auth', 'true');
+    safeStorage.setItem('factorchi_user', JSON.stringify(userProfile));
+    // Mark as newly registered account that wasn't in database previously
+    safeStorage.setItem('factorchi_is_new_user', 'true');
+    safeStorage.removeItem(`factorchi_tour_completed_${userProfile.id}`);
     setCurrentTab('dashboard');
     window.history.pushState({}, '', '/');
     loadData(userProfile);
@@ -480,38 +590,53 @@ export default function App() {
     setSubscriptionRequests([]);
     setSelectedInvoice(null);
     setAuthView('login');
-    localStorage.removeItem('factorchi_auth');
-    localStorage.removeItem('factorchi_user');
-    sessionStorage.removeItem('factorchi_auth');
-    sessionStorage.removeItem('factorchi_user');
+    safeStorage.removeItem('factorchi_auth');
+    safeStorage.removeItem('factorchi_user');
+    safeStorage.removeItem('factorchi_token');
     window.history.pushState({}, '', '/auth/login');
   };
 
   // Save new invoice
   const handleSaveInvoice = async (invData: Partial<Invoice>): Promise<Invoice> => {
     if (!profile) throw new Error('لطفاً ابتدا وارد شوید');
-
-    const res = await fetch('/api/invoices', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': profile.id,
-      },
-      body: JSON.stringify({
-        origin: window.location.origin,
-        ...invData,
-      }),
-    });
-
-    if (res.ok) {
-      const json = await res.json();
-      if (json.invoice) {
-        setInvoices((prev) => [json.invoice, ...prev]);
-        realtime.publishLocal('invoice:created', { invoice: json.invoice });
-        return json.invoice;
-      }
+    if (isSavingInvoiceRef.current) {
+      console.warn('[Invoice] Duplicate submission ignored in App.tsx');
+      throw new Error('درخواست ثبت فاکتور در حال انجام است.');
     }
-    throw new Error('خطا در ذخیره فاکتور');
+
+    isSavingInvoiceRef.current = true;
+    try {
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': profile.id,
+        },
+        body: JSON.stringify({
+          origin: window.location.origin,
+          ...invData,
+        }),
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.invoice) {
+          setInvoices((prev) => {
+            const exists = prev.some(
+              (i) => i.id === json.invoice.id || i.invoice_number === json.invoice.invoice_number
+            );
+            if (exists) return prev;
+            return [json.invoice, ...prev];
+          });
+          return json.invoice;
+        }
+      }
+      throw new Error('خطا در ذخیره فاکتور');
+    } finally {
+      setTimeout(() => {
+        isSavingInvoiceRef.current = false;
+      }, 500);
+    }
   };
 
   // Update invoice status
@@ -553,7 +678,11 @@ export default function App() {
 
   // Delete invoice
   const handleDeleteInvoice = async (id: string): Promise<boolean> => {
-    // 1. Optimistic removal from client state
+    // 1. Snapshot previous state for rollback in case of any failure
+    const previousInvoices = invoices;
+    const previousSelected = selectedInvoice;
+
+    // Optimistic removal from client state
     setInvoices((prev) => prev.filter((i) => i.id !== id && i.invoice_number !== id));
     if (selectedInvoice && (selectedInvoice.id === id || selectedInvoice.invoice_number === id)) {
       setSelectedInvoice(null);
@@ -566,6 +695,10 @@ export default function App() {
       };
       if (profile?.id) {
         headers['x-user-id'] = profile.id;
+        headers['Authorization'] = `Bearer ${profile.id}`;
+      }
+      if (profile?.email) {
+        headers['x-user-email'] = profile.email;
       }
 
       const res = await fetch(`/api/invoices/${encodeURIComponent(id)}`, {
@@ -573,14 +706,26 @@ export default function App() {
         headers,
       });
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        console.warn('Server delete response not ok:', errJson);
+      const resJson = await res.json().catch(() => ({}));
+
+      if (!res.ok || !resJson.success) {
+        console.error('Server delete error:', resJson);
+        // Rollback state
+        setInvoices(previousInvoices);
+        setSelectedInvoice(previousSelected);
+        alert(resJson.error || 'خطا در حذف فاکتور از سرور. عملیات لغو شد.');
+        return false;
       }
+
+      sound.playAlert();
       return true;
     } catch (e) {
       console.error('Network or server error during invoice delete:', e);
-      return true;
+      // Rollback state
+      setInvoices(previousInvoices);
+      setSelectedInvoice(previousSelected);
+      alert('خطای ارتباط با سرور در حذف فاکتور. لطفاً دوباره تلاش کنید.');
+      return false;
     }
   };
 
@@ -649,7 +794,8 @@ export default function App() {
 
   // Verify payment (Admin)
   const handleVerifyPayment = async (requestId: string, adminNote?: string): Promise<boolean> => {
-    if (!profile || profile.role !== 'admin') return false;
+    const isUserAdmin = isAdminUser(profile);
+    if (!isUserAdmin) return false;
 
     const res = await fetch('/api/admin/verify-payment', {
       method: 'POST',
@@ -671,7 +817,8 @@ export default function App() {
 
   // Reject payment (Admin)
   const handleRejectPayment = async (requestId: string, adminNote: string): Promise<boolean> => {
-    if (!profile || profile.role !== 'admin') return false;
+    const isUserAdmin = isAdminUser(profile);
+    if (!isUserAdmin) return false;
 
     const res = await fetch('/api/admin/reject-payment', {
       method: 'POST',
@@ -705,7 +852,7 @@ export default function App() {
       const json = await res.json();
       if (json.profile) {
         setProfile(json.profile);
-        localStorage.setItem('factorchi_user', JSON.stringify(json.profile));
+        safeStorage.setItem('factorchi_user', JSON.stringify(json.profile));
       }
     }
   };
@@ -793,6 +940,29 @@ export default function App() {
             setAuthView('login');
             window.history.pushState({}, '', '/auth/login');
           }}
+          onNavigateToReset={(token) => {
+            setResetToken(token);
+            setAuthView('reset-password');
+            window.history.pushState({}, '', `/auth/reset-password?token=${encodeURIComponent(token)}`);
+          }}
+        />
+      );
+    }
+
+    if (authView === 'reset-password') {
+      return (
+        <ResetPasswordPage
+          token={resetToken}
+          darkMode={darkMode}
+          onToggleDarkMode={toggleDarkMode}
+          onNavigateToLogin={() => {
+            setAuthView('login');
+            window.history.pushState({}, '', '/auth/login');
+          }}
+          onNavigateToForgotPassword={() => {
+            setAuthView('forgot-password');
+            window.history.pushState({}, '', '/auth/forgot-password');
+          }}
         />
       );
     }
@@ -830,6 +1000,7 @@ export default function App() {
         onNavigate={navigateToTab}
         profile={profile}
         pendingRequestsCount={pendingRequestsCount}
+        onStartTour={handleStartTour}
       />
 
       {/* Main Content Area */}
@@ -840,6 +1011,7 @@ export default function App() {
           darkMode={darkMode}
           onToggleDarkMode={toggleDarkMode}
           onNavigate={navigateToTab}
+          onStartTour={handleStartTour}
           notifications={notifications}
           unreadCount={unreadNotificationsCount}
           pendingPaymentsCount={pendingPaymentsCount}
@@ -852,7 +1024,7 @@ export default function App() {
 
         {/* Welcome Toast Notification (Compliant with Rule #11 - No Mention of Trial or Free) */}
         {welcomeToast && (
-          <div className="mx-4 sm:mx-8 mt-4 p-3.5 rounded-2xl bg-gradient-to-r from-teal-500/15 via-emerald-500/15 to-teal-500/10 border border-teal-500/30 text-teal-900 dark:text-teal-200 text-xs flex items-center justify-between shadow-xs animate-fade-in no-print">
+          <div className="mx-4 sm:mx-8 mt-4 p-3.5 rounded-2xl bg-gradient-to-r from-teal-500/15 via-emerald-500/15 to-teal-500/10 border border-teal-500/30 text-teal-900 dark:text-teal-200 text-xs flex flex-wrap items-center justify-between gap-3 shadow-xs animate-fade-in no-print">
             <div className="flex items-center gap-2.5">
               <span className="p-1.5 rounded-xl bg-teal-600 text-white shadow-xs">
                 <Sparkles className="w-4 h-4" />
@@ -860,27 +1032,68 @@ export default function App() {
               <div>
                 <span className="font-bold block">🎉 به سامانه فاکتورچی خوش آمدید!</span>
                 <span className="text-[11px] text-teal-800 dark:text-teal-300">
-                  حساب کاربری شما فعال است. می‌توانید با صدای فارسی فاکتورهای رسمی صادر نمایید.
+                  برای آشنایی سریع و گام‌به‌گام با بخش‌های صدور فاکتور و پرداخت، تور راهنما را مشاهده کنید.
                 </span>
               </div>
             </div>
-            <button
-              onClick={() => setWelcomeToast(false)}
-              className="p-1 rounded-lg text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2 mr-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTour(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition-colors shadow-xs"
+              >
+                شروع تور راهنما
+              </button>
+              <button
+                onClick={() => setWelcomeToast(false)}
+                className="p-1 rounded-lg text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Subscription Expired Alert Banner */}
+        {profile && !isAdminUser(profile) && profile.subscription_status === 'expired' && (
+          <div className="mx-4 sm:mx-8 mt-4 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-900 dark:text-rose-200 text-xs flex flex-wrap items-center justify-between gap-3 shadow-xs animate-fade-in no-print">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-600 text-white shadow-xs shrink-0">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="font-black text-sm block text-rose-700 dark:text-rose-400">
+                  ⚠️ اشتراک شما به پایان رسیده است (حساب قفل است)
+                </span>
+                <span className="text-[12px] text-rose-800 dark:text-rose-300">
+                  برای ادامه صدور فاکتور صوتی، لطفاً فیش واریزی خود را ثبت نمایید تا پس از تایید توسط ادمین، اشتراک ۳۰ روزه شما فعال گردد.
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mr-auto">
+              <button
+                type="button"
+                onClick={() => navigateToTab('billing')}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-all shadow-xs flex items-center gap-1.5 hover:scale-105 active:scale-95"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>ارسال فیش و فعال‌سازی ۳۰ روزه</span>
+              </button>
+            </div>
           </div>
         )}
 
         {/* Main Routed Views */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 pb-28 lg:pb-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-28 lg:pb-8 max-w-7xl w-full mx-auto">
           {currentTab === 'dashboard' && (
             <DashboardView
               profile={profile}
               invoices={invoices}
               onNavigate={navigateToTab}
               onSelectInvoice={setSelectedInvoice}
+              onStartTour={handleStartTour}
             />
           )}
 
@@ -892,6 +1105,7 @@ export default function App() {
                 const found = invoices.find((i) => i.id === invId);
                 if (found) setSelectedInvoice(found);
               }}
+              onNavigateToBilling={() => navigateToTab('billing')}
             />
           )}
 
@@ -914,13 +1128,18 @@ export default function App() {
             />
           )}
 
-          {/* Protected Admin Route with Role and Active Subscription Check */}
+          {/* Protected Admin Route */}
           {currentTab === 'admin' && (
-            profile.role === 'admin' && profile.subscription_status === 'active' ? (
+            isAdminUser(profile) ? (
               <AdminPayments
+                profile={profile}
                 requests={subscriptionRequests}
                 onVerifyPayment={handleVerifyPayment}
                 onRejectPayment={handleRejectPayment}
+                onProfileUpdate={(updatedProfile) => {
+                  setProfile(updatedProfile);
+                  safeStorage.setItem('factorchi_user', JSON.stringify(updatedProfile));
+                }}
               />
             ) : (
               <ForbiddenPage onNavigate={navigateToTab} profile={profile} />
@@ -938,6 +1157,8 @@ export default function App() {
               darkMode={darkMode}
               onToggleDarkMode={toggleDarkMode}
               onUpdateProfile={handleUpdateProfile}
+              onStartTour={handleStartTour}
+              onNavigate={navigateToTab}
             />
           )}
         </main>
@@ -951,6 +1172,7 @@ export default function App() {
         currentTab={currentTab}
         onNavigate={navigateToTab}
         profile={profile}
+        pendingRequestsCount={pendingRequestsCount}
       />
 
       {/* Full Invoice Detail & Print Modal */}
@@ -969,6 +1191,31 @@ export default function App() {
         isOpen={!!verifyingInvoice}
         onClose={() => setVerifyingInvoice(null)}
         onVerify={handleVerifyInvoicePayment}
+      />
+
+      {/* Interactive Onboarding Tour for New Users */}
+      <OnboardingTour
+        isOpen={showTour}
+        onClose={async () => {
+          setShowTour(false);
+          try {
+            localStorage.removeItem('factorchi_is_new_user');
+            if (profile?.id) {
+              localStorage.setItem(`factorchi_tour_completed_${profile.id}`, 'true');
+              // Persist to database so user never sees tour again across any device
+              await fetch('/api/auth/tour-completed', {
+                method: 'POST',
+                headers: { 'x-user-id': profile.id },
+              }).catch(() => {});
+              setProfile((prev) => prev ? { ...prev, tour_completed: true } : prev);
+            }
+          } catch (e) {
+            console.error('Error saving tour completion:', e);
+          }
+        }}
+        currentTab={currentTab}
+        onNavigate={navigateToTab}
+        profile={profile}
       />
     </div>
   );

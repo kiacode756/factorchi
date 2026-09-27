@@ -12,14 +12,18 @@ service cloud.firestore {
     
     // Profiles
     match /profiles/{userId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
     
     // Invoices
     match /invoices/{invoiceId} {
       allow read: if true; // Public can view invoice for payment
       allow create, update, delete: if true; // Managed via server/client securely
+    }
+
+    // Expenses (P&L Tracking)
+    match /expenses/{expenseId} {
+      allow read, write: if true;
     }
     
     // Users
@@ -36,6 +40,16 @@ service cloud.firestore {
     match /feature_updates/{updateId} {
       allow read: if true;
       allow write: if true;
+    }
+
+    // Deleted Invoices (Tombstones)
+    match /deleted_invoices/{docId} {
+      allow read, write: if true;
+    }
+
+    // Registration OTPs & Verification
+    match /registration_otps/{otpId} {
+      allow read, write: if true;
     }
   }
 }

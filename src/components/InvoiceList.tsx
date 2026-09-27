@@ -66,6 +66,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
     const matchesSearch =
       inv.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (inv.title && inv.title.toLowerCase().includes(searchQuery.toLowerCase())) ||
       inv.invoice_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (inv.customer_phone && inv.customer_phone.includes(searchQuery)) ||
       trackingNum.includes(searchQuery);
@@ -149,7 +150,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
       // Client fallback
       const formattedPhone = formatPhoneForWhatsApp(inv.customer_phone);
       const payUrl = `${window.location.origin}/payment/${inv.id}`;
-      const fallbackMsg = `سلام ${inv.customer_name || 'مشتری'} عزیز 🌸\nفاکتور شماره ${inv.invoice_number} به مبلغ ${formatToman(inv.total_amount)} صادر گردید.\n\n💳 لینک پرداخت و مشاهده فاکتور:\n${payUrl}`;
+      const fallbackMsg = `سلام ${inv.customer_name || 'مشتری'} عزیز 🌸\nفاکتور «${inv.title || inv.invoice_number}» به مبلغ ${formatToman(inv.total_amount)} صادر گردید.\n\n💳 لینک پرداخت و مشاهده فاکتور:\n${payUrl}`;
       const fallbackUrl = formattedPhone 
         ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(fallbackMsg)}`
         : `https://wa.me/?text=${encodeURIComponent(fallbackMsg)}`;
@@ -158,7 +159,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
       console.error(err);
       const formattedPhone = formatPhoneForWhatsApp(inv.customer_phone);
       const payUrl = `${window.location.origin}/payment/${inv.id}`;
-      const fallbackMsg = `فاکتور شماره ${inv.invoice_number}\nمبلغ: ${formatToman(inv.total_amount)}\nلینک: ${payUrl}`;
+      const fallbackMsg = `فاکتور «${inv.title || inv.invoice_number}»\nمبلغ: ${formatToman(inv.total_amount)}\nلینک: ${payUrl}`;
       const fallbackUrl = formattedPhone 
         ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(fallbackMsg)}`
         : `https://wa.me/?text=${encodeURIComponent(fallbackMsg)}`;
@@ -169,10 +170,10 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       {/* Header with Search and Quick Filters */}
-      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-5 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
           <div>
             <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
               مدیریت و پیگیری پرداخت فاکتورها
@@ -184,7 +185,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
 
           <button
             onClick={onNewInvoice}
-            className="self-start sm:self-auto px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-2 shadow-sm shadow-teal-500/20 transition-transform active:scale-95"
+            className="self-stretch sm:self-auto justify-center px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-2 shadow-sm shadow-teal-500/20 transition-transform active:scale-95"
           >
             <Plus className="w-4 h-4" />
             <span>صدور فاکتور جدید</span>
@@ -206,7 +207,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
           </div>
 
           {/* Payment Status Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 -mx-1 px-1 scrollbar-none">
             {[
               { key: 'all', label: 'همه فاکتورها', count: invoices.length },
               { key: 'pending_verification', label: 'در انتظار تأیید', count: countPending, highlight: countPending > 0 },
@@ -268,7 +269,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
               <table className="w-full text-right text-xs">
                 <thead>
                   <tr className="bg-slate-50/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border-b border-slate-200/70 dark:border-slate-800">
-                    <th className="py-3.5 px-4 font-semibold">شماره فاکتور</th>
+                    <th className="py-3.5 px-4 font-semibold">نام / شماره فاکتور</th>
                     <th className="py-3.5 px-4 font-semibold">نام مشتری</th>
                     <th className="py-3.5 px-4 font-semibold">تاریخ صدور</th>
                     <th className="py-3.5 px-4 font-semibold">مبلغ کل</th>
@@ -292,9 +293,9 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                           pStatus === 'pending_verification' ? 'bg-amber-50/30 dark:bg-amber-950/10' : ''
                         }`}
                       >
-                        {/* Invoice Number */}
-                        <td className="py-4 px-4 font-mono font-bold text-slate-900 dark:text-slate-100">
-                          {inv.invoice_number}
+                        {/* Invoice Title / Number */}
+                        <td className="py-4 px-4 font-bold text-slate-900 dark:text-slate-100">
+                          <span className="font-sans text-xs">{inv.title || inv.invoice_number}</span>
                         </td>
 
                         {/* Customer */}
@@ -422,8 +423,8 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
-                        {inv.invoice_number}
+                      <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                        {inv.title || inv.invoice_number}
                       </span>
                       {getPaymentStatusBadge(inv)}
                     </div>

@@ -41,6 +41,67 @@
         "date": { "type": "string" }
       },
       "required": ["id", "title", "description"]
+    },
+    "Profile": {
+      "title": "Profile",
+      "description": "User business profile data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "full_name": { "type": "string" },
+        "business_name": { "type": "string" },
+        "phone": { "type": "string" },
+        "subscription_status": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "SubscriptionRequest": {
+      "title": "SubscriptionRequest",
+      "description": "Subscription receipt upload request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_email": { "type": "string" },
+        "plan_id": { "type": "string" },
+        "status": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "status"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Expense record for real P&L calculation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "title", "amount"]
+    },
+    "RegistrationOtp": {
+      "title": "RegistrationOtp",
+      "description": "6-digit OTP code for email verification and registration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "code": { "type": "string" },
+        "full_name": { "type": "string" },
+        "business_name": { "type": "string" },
+        "phone": { "type": "string" },
+        "password": { "type": "string" },
+        "expires_at": { "type": "string" },
+        "created_at": { "type": "string" },
+        "attempts": { "type": "number" }
+      },
+      "required": ["email", "code", "expires_at"]
     }
   },
   "firestore": {
@@ -48,13 +109,29 @@
       "schema": "User",
       "description": "User accounts and authentication data"
     },
+    "/profiles/{userId}": {
+      "schema": "Profile",
+      "description": "User business profile documents"
+    },
     "/invoices/{invoiceId}": {
       "schema": "Invoice",
       "description": "Invoices data"
     },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Expense records for P&L tracking"
+    },
+    "/subscription_requests/{requestId}": {
+      "schema": "SubscriptionRequest",
+      "description": "Subscription verification requests"
+    },
     "/feature_updates/{updateId}": {
       "schema": "FeatureUpdate",
       "description": "What's new feature announcements"
+    },
+    "/registration_otps/{otpId}": {
+      "schema": "RegistrationOtp",
+      "description": "Pending email registration OTP codes"
     }
   }
 }

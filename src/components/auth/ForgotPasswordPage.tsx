@@ -6,25 +6,52 @@ interface ForgotPasswordPageProps {
   darkMode: boolean;
   onToggleDarkMode: () => void;
   onNavigateToLogin: () => void;
+  onNavigateToReset?: (token: string) => void;
 }
 
 export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
   darkMode,
   onToggleDarkMode,
   onNavigateToLogin,
+  onNavigateToReset,
 }) => {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [serverMessage, setServerMessage] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
+    if (!email.trim()) return;
+
     setLoading(true);
-    setTimeout(() => {
+    setErrorMessage(null);
+
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setSubmitted(true);
+        setServerMessage(data.message || 'لینک بازیابی با موفقیت ایجاد و ارسال شد.');
+        if (data.token) {
+          setResetToken(data.token);
+        }
+      } else {
+        setErrorMessage(data.error || 'ارسال لینک بازیابی با خطا مواجه شد.');
+      }
+    } catch (err) {
+      setErrorMessage('خطای برقراری ارتباط با سرور. لطفاً اتصال اینترنت خود را بررسی فرمایید.');
+    } finally {
       setLoading(false);
-      setSubmitted(true);
-    }, 800);
+    }
   };
 
   return (
@@ -60,19 +87,45 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
             </p>
           </div>
 
+          {/* Error Message */}
+          {errorMessage && (
+            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
           {submitted ? (
-            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs space-y-2">
-              <div className="flex items-center gap-2 font-bold">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>لینک بازیابی ارسال گردید</span>
+            <div className="space-y-4">
+              <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs space-y-3">
+                <div className="flex items-center gap-2 font-bold text-sm text-emerald-900 dark:text-emerald-200">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span>لینک بازیابی رمز عبور ارسال شد</span>
+                </div>
+                <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                  {serverMessage || `دستورالعمل و لینک تغییر کلمه عبور به آدرس ${email} ارسال گردید. این لینک به مدت ۱ ساعت معتبر می‌باشد.`}
+                </p>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                  💡 لطفاً صندوق ورودی (Inbox) و در صورت عدم مشاهده، پوشه هرزنامه (Spam / Junk) ایمیل خود را بررسی کنید.
+                </div>
               </div>
-              <p className="text-slate-600 dark:text-slate-400">
-                در صورت وجود حساب با ایمیل <strong>{email}</strong>، دستورالعمل تغییر رمز عبور برای شما ارسال شد.
-              </p>
+
+              {/* Instant action button if token is available for convenient preview testing */}
+              {resetToken && onNavigateToReset && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToReset(resetToken)}
+                  className="w-full py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs shadow-md shadow-teal-500/20 transition-all flex items-center justify-center gap-2"
+                >
+                  <span>باز کردن مستقیم صفحه تنظیم رمز عبور جدید</span>
+                  <ArrowRight className="w-4 h-4 rotate-180" />
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={onNavigateToLogin}
-                className="pt-2 text-teal-600 dark:text-teal-400 font-bold hover:underline block"
+                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
               >
                 بازگشت به صفحه ورود
               </button>
@@ -124,8 +177,19 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
       </div>
 
       {/* Mandatory Footer */}
-      <footer className="text-center py-4 text-xs font-medium text-slate-400 dark:text-slate-500">
-        this website powered by KIARASH
+      <footer className="text-center py-4 text-xs font-medium text-slate-400 dark:text-slate-500 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
+        <a
+          href="mailto:kimiabg2013@gmail.com"
+          className="text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1 transition-colors"
+          dir="ltr"
+          title="پشتیبانی فاکتورچی"
+        >
+          <Mail className="w-3.5 h-3.5" />
+          <span>kimiabg2013@gmail.com</span>
+          <span className="font-sans text-slate-400 dark:text-slate-500">(پشتیبانی)</span>
+        </a>
+        <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
+        <span>this website powered by KIARASH</span>
       </footer>
     </div>
   );

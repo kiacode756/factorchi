@@ -96,19 +96,159 @@ export function parsePersianNumbers(text: string): string {
   return persianToEnglishDigits(result);
 }
 
-export function formatPersianDate(dateString: string | undefined | null): string {
+export const PERSIAN_MONTH_NAMES = [
+  'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
+  'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'
+] as const;
+
+export const PERSIAN_WEEKDAYS = [
+  'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'
+] as const;
+
+/**
+ * Converts Gregorian date (year, month 1-12, day 1-31) to Jalali (Shamsi) [year, month, day]
+ */
+export function gregorianToJalali(gy: number, gm: number, gd: number): [number, number, number] {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let jy = (gy <= 1600) ? 0 : 979;
+  gy -= (gy <= 1600) ? 621 : 1600;
+  const gy2 = (gm > 2) ? (gy + 1) : gy;
+  let days = (365 * gy) + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100) + Math.floor((gy2 + 399) / 400) - 80 + gd + g_d_m[gm - 1];
+  jy += 33 * Math.floor(days / 12053);
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  jy += Math.floor((days - 1) / 365);
+  if (days > 0) days = (days - 1) % 365;
+  const jm = (days < 186) ? 1 + Math.floor(days / 31) : 7 + Math.floor((days - 186) / 30);
+  const jd = 1 + ((days < 186) ? (days % 31) : ((days - 186) % 30));
+  return [jy, jm, jd];
+}
+
+/**
+ * Converts Jalali (Shamsi) date [year, month 1-12, day 1-31] to Gregorian [year, month, day]
+ */
+export function jalaliToGregorian(jy: number, jm: number, jd: number): [number, number, number] {
+  let gy = (jy <= 979) ? 621 : 1600;
+  jy -= (jy <= 979) ? 0 : 979;
+  let days = (365 * jy) + (Math.floor(jy / 33) * 8) + Math.floor(((jy % 33) + 3) / 4) + 78 + jd + ((jm < 7) ? (jm - 1) * 31 : ((jm - 7) * 30) + 186);
+  gy += 400 * Math.floor(days / 146097);
+  days %= 146097;
+  if (days > 36524) {
+    gy += 100 * Math.floor(--days / 36524);
+    days %= 36524;
+    if (days >= 365) days++;
+  }
+  gy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  gy += Math.floor((days - 1) / 365);
+  if (days > 0) days = (days - 1) % 365;
+  const sal_a = [0, 31, ((gy % 4 === 0 && gy % 100 !== 0) || (gy % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  let gm = 0;
+  while (gm < 13 && days >= sal_a[gm]) {
+    days -= sal_a[gm];
+    gm++;
+  }
+  const gd = days + 1;
+  return [gy, gm, gd];
+}
+
+/**
+ * Converts Jalali date components to ISO Gregorian string YYYY-MM-DD
+ */
+export function jalaliToIsoDate(jy: number, jm: number, jd: number): string {
+  const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd);
+  const mm = String(gm).padStart(2, '0');
+  const dd = String(gd).padStart(2, '0');
+  return `${gy}-${mm}-${dd}`;
+}
+
+/**
+ * Returns Jalali components for a given date or today
+ */
+export function getJalaliDateParts(dateInput?: Date | string | null): {
+  year: number;
+  month: number;
+  day: number;
+  monthName: string;
+  weekdayName: string;
+  formattedNumeric: string;
+  formattedText: string;
+} {
+  let validDate: Date;
+  if (!dateInput) {
+    validDate = new Date();
+  } else if (typeof dateInput === 'string') {
+    // Check if dateInput is already Shamsi like 1405/06/18 or 1405-06-18
+    const shamsiMatch = dateInput.trim().match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    if (shamsiMatch) {
+      const jy = parseInt(persianToEnglishDigits(shamsiMatch[1]), 10);
+      const jm = parseInt(persianToEnglishDigits(shamsiMatch[2]), 10);
+      const jd = parseInt(persianToEnglishDigits(shamsiMatch[3]), 10);
+      if (jy >= 1300 && jy <= 1500 && jm >= 1 && jm <= 12 && jd >= 1 && jd <= 31) {
+        const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd);
+        validDate = new Date(gy, gm - 1, gd);
+        const monthName = PERSIAN_MONTH_NAMES[jm - 1] || '';
+        const weekdayName = PERSIAN_WEEKDAYS[validDate.getDay()] || '';
+        const mmStr = String(jm).padStart(2, '0');
+        const ddStr = String(jd).padStart(2, '0');
+        return {
+          year: jy,
+          month: jm,
+          day: jd,
+          monthName,
+          weekdayName,
+          formattedNumeric: `${toPersianDigits(jy)}/${toPersianDigits(mmStr)}/${toPersianDigits(ddStr)}`,
+          formattedText: `${toPersianDigits(jd)} ${monthName} ${toPersianDigits(jy)}`,
+        };
+      }
+    }
+    validDate = new Date(dateInput);
+  } else {
+    validDate = dateInput;
+  }
+
+  if (isNaN(validDate.getTime())) {
+    validDate = new Date();
+  }
+
+  const [jy, jm, jd] = gregorianToJalali(
+    validDate.getFullYear(),
+    validDate.getMonth() + 1,
+    validDate.getDate()
+  );
+  const monthName = PERSIAN_MONTH_NAMES[jm - 1] || '';
+  const weekdayName = PERSIAN_WEEKDAYS[validDate.getDay()] || '';
+  const mmStr = String(jm).padStart(2, '0');
+  const ddStr = String(jd).padStart(2, '0');
+
+  return {
+    year: jy,
+    month: jm,
+    day: jd,
+    monthName,
+    weekdayName,
+    formattedNumeric: `${toPersianDigits(jy)}/${toPersianDigits(mmStr)}/${toPersianDigits(ddStr)}`,
+    formattedText: `${toPersianDigits(jd)} ${monthName} ${toPersianDigits(jy)}`,
+  };
+}
+
+export function formatPersianDate(
+  dateString: string | undefined | null,
+  options?: { showWeekday?: boolean; numericOnly?: boolean }
+): string {
   if (!dateString) return 'امروز';
   try {
-    const d = new Date(dateString);
-    // Simple Persian relative or formatted representation
-    const options: Intl.DateTimeFormatOptions = {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    };
-    return new Intl.DateTimeFormat('fa-IR', options).format(d);
+    const parts = getJalaliDateParts(dateString);
+    if (options?.numericOnly) {
+      return parts.formattedNumeric;
+    }
+    if (options?.showWeekday) {
+      return `${parts.weekdayName}، ${parts.formattedText}`;
+    }
+    return parts.formattedText;
   } catch {
-    return dateString;
+    return String(dateString);
   }
 }
 
@@ -184,5 +324,31 @@ export function formatPhoneForWhatsApp(phone: string | undefined | null): string
   }
 
   return '';
+}
+
+/**
+ * Safe fetch with automatic retry and backoff for network resilience.
+ * Prevents unhandled network exceptions when server is reloading or during cold start.
+ */
+export async function fetchWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  maxRetries: number = 2,
+  backoffMs: number = 300
+): Promise<Response | null> {
+  let lastError: any = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(input, init);
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, backoffMs * (attempt + 1)));
+      }
+    }
+  }
+  console.warn(`[Network] fetch failed after retries for ${String(input)}:`, lastError?.message || lastError);
+  return null;
 }
 

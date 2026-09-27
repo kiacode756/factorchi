@@ -47,7 +47,7 @@ export function exportInvoiceToPdf(invoice: Invoice, profile?: Profile | null) {
     <html lang="fa" dir="rtl">
     <head>
       <meta charset="UTF-8">
-      <title>فاکتور ${escapeHtml(invoice.invoice_number)} - ${escapeHtml(businessName)}</title>
+      <title>${escapeHtml(invoice.title || invoice.invoice_number)} - ${escapeHtml(businessName)}</title>
       <style>
         @import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
         * {
@@ -172,7 +172,7 @@ export function exportInvoiceToPdf(invoice: Invoice, profile?: Profile | null) {
             </td>
             <td style="text-align: left; vertical-align: top; width: 40%;">
               <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 3px;">
-                شماره فاکتور: <span style="font-family: monospace;">${escapeHtml(invoice.invoice_number)}</span>
+                ${invoice.title ? 'عنوان فاکتور:' : 'شماره فاکتور:'} <span>${escapeHtml(invoice.title || invoice.invoice_number)}</span>
               </div>
               <div style="color: #64748b; font-size: 11px; margin-bottom: 6px;">
                 تاریخ صدور: ${formattedDate}

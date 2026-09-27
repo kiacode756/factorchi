@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   TrendingUp,
   Receipt,
@@ -10,6 +10,8 @@ import {
   CheckCircle2,
   ArrowLeft,
   FileText,
+  Compass,
+  Lock,
 } from 'lucide-react';
 import { Invoice, Profile, NavigationTab } from '../types';
 import { formatToman, toPersianDigits, formatNumber, formatPersianDate } from '../lib/utils';
@@ -20,6 +22,7 @@ interface DashboardViewProps {
   invoices: Invoice[];
   onNavigate: (tab: NavigationTab) => void;
   onSelectInvoice: (invoice: Invoice) => void;
+  onStartTour?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -27,7 +30,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   invoices,
   onNavigate,
   onSelectInvoice,
+  onStartTour,
 }) => {
+  const isUserAdmin = profile.role === 'admin' || profile.email?.toLowerCase() === 'bagherikiarash74@gmail.com';
+  const isExpired = !isUserAdmin && profile.subscription_status === 'expired';
   // Helper to determine if an invoice is verified as paid
   const isInvoiceFullyPaid = (inv: Invoice): boolean => {
     if (inv.payment_status === 'paid') return true;
@@ -50,50 +56,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   };
 
-  // 1. Total Invoices Count & Paid Invoices
-  const totalInvoices = invoices.length;
-  const paidInvoices = invoices.filter(isInvoiceFullyPaid);
+  // Memoized stats calculation to avoid redundant overhead on re-renders
+  const { totalInvoices, paidInvoices, totalSalesMonth, overdueAmount, todayReceived, recentInvoices, todayPaidInvoices, overdueInvoices } = useMemo(() => {
+    const total = invoices.length;
+    const paid = invoices.filter(isInvoiceFullyPaid);
 
-  // 2. Monthly Sales (فروش این ماه):
-  // Sum of all invoices created in the current active 30-day window or current calendar month
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const nowDate = new Date();
+    const thirtyDaysAgoDate = new Date(nowDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const monthlyInvoices = invoices.filter((inv) => {
-    const invDate = parseSafeDate(inv.created_at);
-    if (!invDate) return false;
-    return (
-      (invDate.getFullYear() === now.getFullYear() && invDate.getMonth() === now.getMonth()) ||
-      invDate >= thirtyDaysAgo
+    const monthly = invoices.filter((inv) => {
+      const invDate = parseSafeDate(inv.created_at);
+      if (!invDate) return false;
+      return (
+        (invDate.getFullYear() === nowDate.getFullYear() && invDate.getMonth() === nowDate.getMonth()) ||
+        invDate >= thirtyDaysAgoDate
+      );
+    });
+
+    const salesMonth = monthly.reduce(
+      (sum, i) => sum + (Number(i.total_amount) || 0),
+      0
     );
-  });
 
-  const totalSalesMonth = monthlyInvoices.reduce(
-    (sum, i) => sum + (Number(i.total_amount) || 0),
-    0
-  );
+    const overdue = invoices.filter((inv) => !isInvoiceFullyPaid(inv));
+    const overdueTotal = overdue.reduce(
+      (sum, i) => sum + (Number(i.total_amount) || 0),
+      0
+    );
 
-  // 3. Overdue / Unpaid Receivables (طلب‌های معوقه): Sum of invoices that are NOT paid
-  const overdueInvoices = invoices.filter((inv) => !isInvoiceFullyPaid(inv));
-  const overdueAmount = overdueInvoices.reduce(
-    (sum, i) => sum + (Number(i.total_amount) || 0),
-    0
-  );
-  
-  // 4. Today's Revenue (دریافتی امروز): Sum of invoices strictly paid TODAY (same calendar day)
-  const todayPaidInvoices = invoices.filter((inv) => {
-    if (!isInvoiceFullyPaid(inv)) return false;
-    const dateToCheck = parseSafeDate(inv.payment_date) || parseSafeDate(inv.created_at);
-    if (!dateToCheck) return false;
-    return isSameDay(dateToCheck, now);
-  });
+    const todayPaid = invoices.filter((inv) => {
+      if (!isInvoiceFullyPaid(inv)) return false;
+      const dateToCheck = parseSafeDate(inv.payment_date) || parseSafeDate(inv.created_at);
+      if (!dateToCheck) return false;
+      return isSameDay(dateToCheck, nowDate);
+    });
 
-  const todayReceived = todayPaidInvoices.reduce(
-    (sum, i) => sum + (Number(i.total_amount) || 0),
-    0
-  );
+    const todayRec = todayPaid.reduce(
+      (sum, i) => sum + (Number(i.total_amount) || 0),
+      0
+    );
 
-  const recentInvoices = invoices.slice(0, 5);
+    return {
+      totalInvoices: total,
+      paidInvoices: paid,
+      totalSalesMonth: salesMonth,
+      overdueAmount: overdueTotal,
+      todayReceived: todayRec,
+      recentInvoices: invoices.slice(0, 5),
+      todayPaidInvoices: todayPaid,
+      overdueInvoices: overdue,
+    };
+  }, [invoices]);
 
   return (
     <div className="space-y-6">
@@ -114,14 +127,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </p>
         </div>
 
-        <button
-          id="hero-voice-btn"
-          onClick={() => onNavigate('new-invoice')}
-          className="relative z-10 px-5 py-3 rounded-xl bg-white text-teal-900 font-bold text-xs flex items-center gap-2 shadow-lg shadow-black/10 hover:bg-teal-50 transition-all hover:scale-105 active:scale-95 shrink-0"
-        >
-          <Mic className="w-4 h-4 text-teal-600" />
-          <span>شروع ضبط صوت فاکتور</span>
-        </button>
+        <div className="relative z-10 flex flex-wrap items-center gap-2.5 shrink-0">
+          {onStartTour && (
+            <button
+              id="dashboard-tour-btn"
+              type="button"
+              onClick={onStartTour}
+              className="px-4 py-3 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs flex items-center gap-2 border border-white/20 transition-all active:scale-95"
+            >
+              <Compass className="w-4 h-4" />
+              <span>تور راهنمای سایت</span>
+            </button>
+          )}
+          {isExpired ? (
+            <button
+              id="hero-expired-btn"
+              onClick={() => onNavigate('billing')}
+              className="px-5 py-3 rounded-xl bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-900/40 hover:bg-rose-700 transition-all hover:scale-105 active:scale-95 animate-pulse"
+            >
+              <Lock className="w-4 h-4 text-white" />
+              <span>تمدید اشتراک (حساب قفل است)</span>
+            </button>
+          ) : (
+            <button
+              id="hero-voice-btn"
+              onClick={() => onNavigate('new-invoice')}
+              className="px-5 py-3 rounded-xl bg-white text-teal-900 font-bold text-xs flex items-center gap-2 shadow-lg shadow-black/10 hover:bg-teal-50 transition-all hover:scale-105 active:scale-95"
+            >
+              <Mic className="w-4 h-4 text-teal-600" />
+              <span>شروع ضبط صوت فاکتور</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 4 Stats Grid */}
@@ -193,7 +230,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* P&L Interactive Analytics Section */}
-      <ProfitLossSection />
+      <ProfitLossSection profile={profile} />
 
       {/* Recent Invoices Section */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-5 sm:p-6 shadow-sm">
@@ -253,10 +290,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <div>
                     <div className="font-bold text-xs text-slate-800 dark:text-slate-200">
-                      {inv.customer_name}
+                      {inv.title ? `${inv.title} (${inv.customer_name})` : inv.customer_name}
                     </div>
-                    <div className="text-[11px] text-slate-400 font-mono">
-                      {inv.invoice_number} • {formatPersianDate(inv.created_at)}
+                    <div className="text-[11px] text-slate-400">
+                      {inv.title || inv.invoice_number} • {formatPersianDate(inv.created_at)}
                     </div>
                   </div>
                 </div>

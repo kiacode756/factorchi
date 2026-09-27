@@ -8,6 +8,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: string;
   user_id: string;
+  title?: string;
   invoice_number: string;
   customer_name: string;
   customer_phone: string;
@@ -54,6 +55,7 @@ export interface Profile {
   account_number?: string;
   sheba_number?: string;
   default_notes?: string;
+  tour_completed?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -122,5 +124,19 @@ export interface RealtimeEventPayload {
   type: string;
   payload: any;
   timestamp: string;
+}
+
+export type ExpenseCategory = 'material' | 'rent' | 'utility' | 'salary' | 'equipment' | 'other';
+
+export interface Expense {
+  id: string;
+  user_id: string;
+  title: string;
+  category: ExpenseCategory;
+  amount: number;
+  date: string;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
 }
 

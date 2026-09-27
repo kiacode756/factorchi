@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Invoice } from '../types';
 import { formatToman, toPersianDigits, formatPersianDate, copyToClipboard } from '../lib/utils';
+import { ReceiptImageHoverZoom, ReceiptLightboxModal } from './ReceiptImageViewer';
 
 interface PaymentVerificationModalProps {
   invoice: Invoice | null;
@@ -36,18 +37,20 @@ export const PaymentVerificationModal: React.FC<PaymentVerificationModalProps> =
   onClose,
   onVerify,
 }) => {
-  if (!isOpen || !invoice) return null;
-
   const [copiedCode, setCopiedCode] = useState(false);
-  const [verificationNotes, setVerificationNotes] = useState(invoice.verification_notes || '');
+  const [verificationNotes, setVerificationNotes] = useState(invoice?.verification_notes || '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showFullReceiptModal, setShowFullReceiptModal] = useState(false);
 
   useEffect(() => {
-    setVerificationNotes(invoice.verification_notes || '');
-    setError(null);
+    if (invoice) {
+      setVerificationNotes(invoice.verification_notes || '');
+      setError(null);
+    }
   }, [invoice]);
+
+  if (!isOpen || !invoice) return null;
 
   const trackingNumber = invoice.payment_tracking_number || invoice.notes?.match(/کد پیگیری پرداخت:\s*([^\s|]+)/)?.[1] || 'ثبت نشده';
   const receiptUrl = invoice.payment_receipt_url || invoice.receipt_image_url || null;
@@ -80,7 +83,7 @@ export const PaymentVerificationModal: React.FC<PaymentVerificationModalProps> =
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md overflow-y-auto">
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md overflow-y-auto">
         <div
           className="bg-white dark:bg-slate-900 rounded-3xl max-w-xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-auto animate-fade-in"
           onClick={(e) => e.stopPropagation()}
@@ -163,24 +166,17 @@ export const PaymentVerificationModal: React.FC<PaymentVerificationModalProps> =
                       className="text-teal-600 dark:text-teal-400 hover:underline font-bold text-[11px] flex items-center gap-1"
                     >
                       <ZoomIn className="w-3.5 h-3.5" />
-                      <span>بزرگ‌نمایی تصویر</span>
+                      <span>بزرگ‌نمایی و تمام‌صفحه</span>
                     </button>
                   </div>
 
-                  <div
-                    onClick={() => setShowFullReceiptModal(true)}
-                    className="group relative cursor-pointer overflow-hidden rounded-2xl border-2 border-amber-300/80 dark:border-amber-700 bg-black/5 dark:bg-black/30 max-h-56 flex items-center justify-center hover:border-teal-500 transition-colors"
-                  >
-                    <img
-                      src={receiptUrl}
-                      alt="فیش واریزی پرداخت"
-                      className="w-full max-h-56 object-contain rounded-xl transition-transform duration-200 group-hover:scale-[1.02]"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white font-bold gap-2 transition-opacity rounded-xl backdrop-blur-xs">
-                      <ZoomIn className="w-5 h-5" />
-                      <span>مشاهده در اندازه واقعی و کامل</span>
-                    </div>
-                  </div>
+                  {/* Interactive Live Hover Zoom & Mobile-friendly tap-to-expand */}
+                  <ReceiptImageHoverZoom
+                    src={receiptUrl}
+                    alt="فیش واریزی پرداخت"
+                    trackingNumber={trackingNumber}
+                    invoiceNumber={invoice.invoice_number}
+                  />
                 </div>
               ) : (
                 <div className="p-3 bg-white/70 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 text-slate-500 text-center text-xs">
@@ -341,55 +337,16 @@ export const PaymentVerificationModal: React.FC<PaymentVerificationModalProps> =
         </div>
       </div>
 
-      {/* Full-Screen Receipt Lightbox Modal */}
-      {showFullReceiptModal && receiptUrl && (
-        <div
-          className="fixed inset-0 z-60 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setShowFullReceiptModal(false)}
-        >
-          <div
-            className="relative max-w-4xl max-h-[92vh] bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-700 flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-white text-xs font-bold">
-                <ImageIcon className="w-4 h-4 text-teal-400" />
-                <span>تصویر فیش واریزی - فاکتور {invoice.invoice_number}</span>
-                {trackingNumber !== 'ثبت نشده' && (
-                  <span className="font-mono bg-slate-700 px-2 py-0.5 rounded-md text-amber-300 text-[11px]" dir="ltr">
-                    کد پیگیری: {trackingNumber}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={receiptUrl}
-                  download={`receipt-${invoice.invoice_number}.jpg`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors flex items-center gap-1 text-xs font-medium px-2.5"
-                  title="دانلود تصویر رسید"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>دانلود</span>
-                </a>
-                <button
-                  onClick={() => setShowFullReceiptModal(false)}
-                  className="p-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="p-4 flex items-center justify-center overflow-auto max-h-[calc(92vh-90px)]">
-              <img
-                src={receiptUrl}
-                alt="فیش واریزی کامل"
-                className="max-h-[80vh] w-auto object-contain rounded-xl shadow-2xl"
-              />
-            </div>
-          </div>
-        </div>
+      {/* Full-Screen Receipt Lightbox Modal (renders via portal to body with z-[100]) */}
+      {receiptUrl && (
+        <ReceiptLightboxModal
+          isOpen={showFullReceiptModal}
+          onClose={() => setShowFullReceiptModal(false)}
+          src={receiptUrl}
+          alt={`تصویر فیش واریزی - فاکتور ${invoice.invoice_number}`}
+          trackingNumber={trackingNumber}
+          invoiceNumber={invoice.invoice_number}
+        />
       )}
     </>
   );

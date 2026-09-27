@@ -35,11 +35,12 @@ export const BillingPage: React.FC<BillingPageProps> = ({
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const cardNumber = '6219-8614-0699-3534';
   const cardHolder = 'کیارش باقری';
   const bankName = 'بانک سامان';
-  const planPrice = 500000;
+  const planPrice = 5000000;
 
   const handleCopyCard = async () => {
     const success = await copyToClipboard(cardNumber.replace(/-/g, ''));
@@ -53,9 +54,10 @@ export const BillingPage: React.FC<BillingPageProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert('حجم تصویر رسید نباید بیشتر از ۵ مگابایت باشد.');
+        setFormError('حجم تصویر رسید نباید بیشتر از ۵ مگابایت باشد.');
         return;
       }
+      setFormError(null);
       setReceiptFile(file);
       setReceiptPreview(URL.createObjectURL(file));
     }
@@ -64,9 +66,10 @@ export const BillingPage: React.FC<BillingPageProps> = ({
   const handleSubmitRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!transactionRef.trim()) {
-      alert('لطفاً شماره پیگیری تراکنش را وارد کنید.');
+      setFormError('لطفاً شماره پیگیری تراکنش را وارد کنید.');
       return;
     }
+    setFormError(null);
 
     setIsSubmitting(true);
     try {
@@ -74,6 +77,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({
       if (receiptFile) fd.append('receipt_image', receiptFile);
       fd.append('transaction_reference', transactionRef);
       fd.append('user_note', userNote);
+      fd.append('amount', String(planPrice));
       fd.append('user_id', profile.id);
       fd.append('user_name', profile.full_name);
       fd.append('user_email', profile.email || 'user@example.com');
@@ -162,24 +166,40 @@ export const BillingPage: React.FC<BillingPageProps> = ({
               <span className="text-xs font-semibold uppercase tracking-wider text-teal-300">
                 {profile.role === 'admin' ? 'سطح دسترسی شما' : 'طرح فعال شما'}
               </span>
-              <span className="px-3 py-1 rounded-full text-xs font-black bg-teal-500/20 border border-teal-400/30 text-teal-300">
+              <span className={`px-3 py-1 rounded-full text-xs font-black ${
+                profile.role === 'admin'
+                  ? 'bg-teal-500/20 border border-teal-400/30 text-teal-300'
+                  : profile.subscription_status === 'expired'
+                  ? 'bg-rose-500/20 border border-rose-400/30 text-rose-300'
+                  : profile.subscription_status === 'trial'
+                  ? 'bg-amber-500/25 border border-amber-400/40 text-amber-300'
+                  : 'bg-teal-500/20 border border-teal-400/30 text-teal-300'
+              }`}>
                 {profile.role === 'admin'
                   ? 'مدیر سیستم (دسترسی دائمی و نامحدود)'
-                  : profile.subscription_status === 'active'
-                  ? 'اشتراک حرفه‌ای فعال'
-                  : 'نیازمند تمدید'}
+                  : profile.subscription_status === 'expired'
+                  ? 'اشتراک منقضی شده (قفل شده)'
+                  : profile.subscription_status === 'trial'
+                  ? 'دوره آزمایشی ۱ روزه (مهلت تست ۲۴ ساعته)'
+                  : 'اشتراک حرفه‌ای فعال'}
               </span>
             </div>
 
             <h3 className="text-2xl font-black">
               {profile.role === 'admin'
                 ? 'حساب جامع مدیریت سیستم'
+                : profile.subscription_status === 'trial'
+                ? 'دوره آزمایشی ۱ روزه فاکتورچی'
                 : 'اشتراک ماهانه فاکتورچی'}
             </h3>
 
             <p className="text-xs text-slate-300 leading-relaxed max-w-lg">
               {profile.role === 'admin'
                 ? 'حساب شما دارای دسترسی دائمی، بدون محدودیت زمانی یا انقضا به کلیه امکانات صوتی، هوش مصنوعی، گزارشات سود و زیان و پنل بررسی پرداخت‌ها می‌باشد.'
+                : profile.subscription_status === 'expired'
+                ? 'مهلت استفاده از دوره آزمایشی یا اشتراک شما پایان یافته است. با واریز وجه و ثبت تصویر فیش در زیر، پس از تایید توسط ادمین، اشتراک شما بلافاصله تمدید و قفل امکانات باز خواهد شد.'
+                : profile.subscription_status === 'trial'
+                ? 'حساب شما در دوره آزمایشی ۱ روزه (۲۴ ساعته) رایگان فاکتورچی قرار دارد. برای جلوگیری از قطع دسترسی به امکانات پس از اتمام ۲۴ ساعت، می‌توانید فیش واریز اشتراک ماهانه را بارگذاری نمایید.'
                 : 'صدور نامحدود فاکتور با صدا، اشتراک در واتس‌اپ، گزارشات سود و زیان P&L و پشتیبانی اختصاصی'}
             </p>
           </div>
@@ -187,11 +207,23 @@ export const BillingPage: React.FC<BillingPageProps> = ({
           <div className="pt-6 border-t border-slate-700/60 mt-4 flex items-center justify-between relative z-10 text-xs">
             <div>
               <span className="text-slate-400">وضعیت اعتبار حساب:</span>
-              <div className="font-bold text-teal-300 text-sm mt-0.5">
+              <div className={`font-bold text-sm mt-0.5 ${
+                profile.role === 'admin'
+                  ? 'text-teal-300'
+                  : profile.subscription_status === 'expired'
+                  ? 'text-rose-400'
+                  : profile.subscription_status === 'trial'
+                  ? 'text-amber-300'
+                  : 'text-teal-300'
+              }`}>
                 {profile.role === 'admin'
                   ? 'دائمی و نامحدود (بدون انقضا)'
+                  : profile.subscription_status === 'expired'
+                  ? `منقضی شده (${profile.subscription_expires_at ? formatPersianDate(profile.subscription_expires_at) : 'پایان دوره'})`
+                  : profile.subscription_status === 'trial'
+                  ? `تست ۱ روزه (معتبر تا ${profile.subscription_expires_at ? formatPersianDate(profile.subscription_expires_at) : 'پایان امروز'})`
                   : profile.subscription_expires_at
-                  ? formatPersianDate(profile.subscription_expires_at)
+                  ? `معتبر تا ${formatPersianDate(profile.subscription_expires_at)}`
                   : 'اعتبار فعال'}
               </div>
             </div>
@@ -199,10 +231,14 @@ export const BillingPage: React.FC<BillingPageProps> = ({
             {profile.role !== 'admin' && (
               <button
                 onClick={() => setModalOpen(true)}
-                className="px-4 py-2.5 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-teal-500/30 transition-transform active:scale-95 flex items-center gap-1.5"
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-transform active:scale-95 flex items-center gap-1.5 ${
+                  profile.subscription_status === 'expired'
+                    ? 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-500/30 animate-pulse'
+                    : 'bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-teal-500/30'
+                }`}
               >
-                <Zap className="w-4 h-4 fill-slate-950" />
-                <span>تمدید / خرید اشتراک</span>
+                <Zap className={`w-4 h-4 ${profile.subscription_status === 'expired' ? 'fill-white' : 'fill-slate-950'}`} />
+                <span>{profile.subscription_status === 'expired' ? 'ثبت فیش واریزی و رفع قفل' : 'تمدید / خرید اشتراک'}</span>
               </button>
             )}
           </div>
@@ -312,8 +348,8 @@ export const BillingPage: React.FC<BillingPageProps> = ({
 
       {/* Card to Card Payment Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-md overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 my-auto overflow-hidden">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-2.5 sm:p-4 bg-slate-900/60 backdrop-blur-md overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full max-h-[92dvh] sm:max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 my-auto overflow-hidden">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 p-4 sm:p-5 flex-shrink-0">
               <div>
@@ -326,15 +362,15 @@ export const BillingPage: React.FC<BillingPageProps> = ({
               </div>
               <button
                 onClick={() => setModalOpen(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             {/* Scrollable Form Area */}
-            <form onSubmit={handleSubmitRequest} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-xs">
+            <form onSubmit={handleSubmitRequest} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 text-xs overscroll-contain">
                 {/* Bank Card Info Display */}
                 <div className="p-4 rounded-2xl bg-gradient-to-br from-teal-50 to-emerald-50 dark:from-slate-800 dark:to-slate-800/80 border border-teal-500/20 space-y-3">
                   <div className="flex items-center justify-between">
@@ -373,7 +409,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({
                 {/* Payment Steps */}
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl text-xs space-y-1 text-slate-600 dark:text-slate-400">
                   <div className="font-bold text-slate-800 dark:text-slate-200 mb-1">مراحل پرداخت:</div>
-                  <div>۱. شماره کارت بالا را کپی و مبلغ ۵۰۰,۰۰۰ تومان را واریز فرمایید.</div>
+                  <div>۱. شماره کارت بالا را کپی و مبلغ {formatToman(planPrice)} را واریز فرمایید.</div>
                   <div>۲. اسکرین‌شات یا عکس رسید واریز را در فرم زیر بارگذاری کنید.</div>
                   <div>۳. شماره پیگیری تراکنش را وارد کرده و دکمه ثبت را بزنید.</div>
                 </div>
@@ -438,21 +474,29 @@ export const BillingPage: React.FC<BillingPageProps> = ({
                     className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                   />
                 </div>
+
+                {/* Form Error Banner */}
+                {formError && (
+                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{formError}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Sticky Action Footer (Optimized for Mobile & Desktop) */}
-              <div className="sticky bottom-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5 z-30 shadow-lg sm:shadow-none flex-shrink-0">
+              {/* Action Footer (Always visible at the bottom of the modal dialog) */}
+              <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5 z-10 flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs transition-colors"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs transition-colors cursor-pointer"
                 >
                   انصراف
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full sm:w-auto min-h-[48px] px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-teal-600/25 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                  className="w-full sm:w-auto min-h-[46px] px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-teal-600/25 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
                 >
                   {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
                   <span>ثبت واریز و ارسال برای تایید</span>

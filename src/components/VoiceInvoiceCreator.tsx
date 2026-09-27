@@ -22,6 +22,11 @@ import {
   Info,
   CreditCard,
   ExternalLink,
+  Lock,
+  AlertCircle,
+  Check,
+  RefreshCw,
+  Tag,
 } from 'lucide-react';
 import { Invoice, InvoiceItem, Profile } from '../types';
 import {
@@ -37,14 +42,22 @@ import {
 interface VoiceInvoiceCreatorProps {
   onSaveInvoice: (invoice: Partial<Invoice>) => Promise<Invoice>;
   onNavigateToInvoice?: (invoiceId: string) => void;
+  onNavigateToBilling?: () => void;
   profile?: Profile | null;
 }
 
 export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
   onSaveInvoice,
   onNavigateToInvoice,
+  onNavigateToBilling,
   profile,
 }) => {
+  const isExpired = Boolean(
+    profile &&
+    profile.role !== 'admin' &&
+    profile.email?.toLowerCase() !== 'bagherikiarash74@gmail.com' &&
+    profile.subscription_status === 'expired'
+  );
   // Mode: record vs upload vs text simulation
   const [mode, setMode] = useState<'record' | 'upload' | 'text'>('record');
   const [infoCollapsed, setInfoCollapsed] = useState(false);
@@ -78,6 +91,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
   const [aiConfidence, setAiConfidence] = useState<number>(95);
 
   // Form State - Initialized completely empty for new invoice
+  const [invoiceName, setInvoiceName] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [items, setItems] = useState<{ id: string; name: string; quantity: number | string; unit_price: number | string }[]>([
@@ -91,6 +105,22 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
   const [savedInvoice, setSavedInvoice] = useState<Invoice | null>(null);
   const [whatsappLink, setWhatsappLink] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [copiedPayLink, setCopiedPayLink] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<{
+    type: 'error' | 'success' | 'info';
+    message: string;
+  } | null>(null);
+
+  const showNotice = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
+    setVoiceNotice({ type, message });
+    setTimeout(() => {
+      setVoiceNotice((curr) => (curr?.message === message ? null : curr));
+    }, 6000);
+  };
+
+  const isSavingRef = useRef(false);
+  const lastSaveTimestampRef = useRef<number>(0);
+  const clientRequestIdRef = useRef<string | null>(null);
 
   // Helper to safely parse numeric inputs (treat empty string as 0 in calculations)
   const parseNum = (val: string | number | undefined | null): number => {
@@ -253,7 +283,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
       setIsRecording(true);
     } catch (err) {
       console.error('Error accessing microphone:', err);
-      alert('دسترسی به میکروفون امکان‌پذیر نشد. لطفاً در تنظیمات مرورگر اجازه استفاده از میکروفون را بدهید یا از تب «شبیه‌ساز متن گفتار» استفاده فرمایید.');
+      showNotice('دسترسی به میکروفون امکان‌پذیر نشد. لطفاً در تنظیمات مرورگر اجازه استفاده از میکروفون را بدهید یا از تب «شبیه‌ساز متن گفتار» استفاده فرمایید.');
     }
   };
 
@@ -292,7 +322,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 25 * 1024 * 1024) {
-        alert('حجم فایل نباید بیشتر از ۲۵ مگابایت باشد.');
+        showNotice('حجم فایل نباید بیشتر از ۲۵ مگابایت باشد.');
         return;
       }
       setUploadedFile(file);
@@ -315,16 +345,22 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
     }
 
     const currentAudio = explicitAudio || audioBlob || uploadedFile;
-    const isTextMode = (mode === 'text' || !!explicitText) && !currentAudio;
+    const isTextMode = mode === 'text' || !!explicitText;
     const textToSend = explicitText || (mode === 'text' ? simulatedText.trim() : (liveTranscriptRef.current || '').trim());
 
+    if (isExpired) {
+      showNotice('دوره اشتراک شما به پایان رسیده است. برای صدور فاکتور صوتی، لطفاً فیش واریز خود را در بخش مدیریت اشتراک ارسال فرمایید.');
+      if (onNavigateToBilling) onNavigateToBilling();
+      return;
+    }
+
     if (isTextMode && !textToSend) {
-      alert('لطفاً متن فاکتور یا گفتار را وارد کنید یا یکی از نمونه‌های آماده را انتخاب فرمایید.');
+      showNotice('لطفاً متن فاکتور یا گفتار را وارد کنید یا یکی از نمونه‌های آماده را انتخاب فرمایید.');
       return;
     }
 
     if (!isTextMode && !currentAudio && !textToSend) {
-      alert('لطفاً ابتدا با میکروفون صدا ضبط کنید، یک فایل صوتی انتخاب کنید یا از تب «شبیه‌ساز متن گفتار» استفاده فرمایید.');
+      showNotice('لطفاً ابتدا با میکروفون صدا ضبط کنید، یک فایل صوتی انتخاب کنید یا از تب «شبیه‌ساز متن گفتار» استفاده فرمایید.');
       return;
     }
 
@@ -332,41 +368,57 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
     setProcessStep(0); // Transcription step
 
     try {
-      const stepTimer1 = setTimeout(() => setProcessStep(1), 600);
-      const stepTimer2 = setTimeout(() => setProcessStep(2), 1200);
+      const stepTimer1 = setTimeout(() => setProcessStep(1), 350);
+      const stepTimer2 = setTimeout(() => setProcessStep(2), 700);
 
       let response: Response;
 
-      if (isTextMode || !currentAudio) {
-        response = await fetch('/api/ai/voice-to-invoice', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ text: textToSend }),
-        });
-      } else {
+      // When audio is present, always send the actual audio file to the backend
+      // and include live transcript as an auxiliary hint.
+      if (!isTextMode && currentAudio) {
         const formData = new FormData();
         const ext = currentAudio.type?.includes('mp4') ? 'm4a' : currentAudio.type?.includes('wav') ? 'wav' : 'webm';
         formData.append('audio_file', currentAudio, `voice.${ext}`);
         formData.append('mimeType', currentAudio.type || 'audio/webm');
         if (textToSend) {
-          formData.append('text', textToSend);
+          formData.append('live_transcript', textToSend);
         }
         response = await fetch('/api/ai/voice-to-invoice', {
           method: 'POST',
+          headers: {
+            'x-user-id': profile?.id || '',
+          },
           body: formData,
+        });
+      } else {
+        // Pure text mode or simulated text
+        response = await fetch('/api/ai/voice-to-invoice', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': profile?.id || '',
+          },
+          body: JSON.stringify({ text: textToSend }),
         });
       }
 
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
 
+      if (response.status === 403) {
+        const resErr = await response.json().catch(() => ({}));
+        showNotice(resErr.error || 'اشتراک شما منقضی شده است. برای فعال‌سازی ۳۰ روزه، فیش واریز را بارگذاری فرمایید.');
+        if (onNavigateToBilling) onNavigateToBilling();
+        setProcessing(false);
+        return;
+      }
+
       if (response.ok) {
         const result = await response.json();
         if (result.success && result.data) {
           const d = result.data;
           setTranscriptionText(d.transcription || textToSend || 'استخراج هوشمند اطلاعات فاکتور با هوش مصنوعی انجام شد');
+          if (d.invoice_name) setInvoiceName(d.invoice_name);
           if (d.customer_name) setCustomerName(d.customer_name);
           if (d.customer_phone) setCustomerPhone(d.customer_phone);
           
@@ -386,7 +438,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
           } else {
             setItems([{ id: `itm-${Date.now()}-0`, name: '', quantity: '1', unit_price: '' }]);
             if (!d.customer_name && !textToSend && (!d.transcription || d.transcription.length < 3)) {
-              alert('متن یا قلمی از ویس ضبط‌شده تشخیص داده نشد. لطفاً در محیطی آرام‌تر یا با صدای واضح‌تر صحبت فرمایید یا از تب «شبیه‌ساز متن گفتار» استفاده کنید.');
+              showNotice('متن یا قلمی از ویس ضبط‌شده تشخیص داده نشد. لطفاً در محیطی آرام‌تر یا با صدای واضح‌تر صحبت فرمایید یا از تب «شبیه‌ساز متن گفتار» استفاده کنید.', 'info');
             }
           }
 
@@ -402,15 +454,15 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
           if (d.notes) setNotes(d.notes);
           if (d.confidence) setAiConfidence(d.confidence);
         } else {
-          alert(result.error || 'خطا در پردازش اطلاعات.');
+          showNotice(result.error || 'خطا در پردازش اطلاعات.');
         }
       } else {
         const errJson = await response.json().catch(() => ({}));
-        alert(errJson.error || 'خطا در برقراری ارتباط با سرویس هوش مصنوعی.');
+        showNotice(errJson.error || 'خطا در برقراری ارتباط با سرویس هوش مصنوعی.');
       }
     } catch (err) {
       console.error('Error processing audio with AI:', err);
-      alert('خطا در پردازش هوش مصنوعی. لطفاً دوباره تلاش فرمایید.');
+      showNotice('خطا در پردازش هوش مصنوعی. لطفاً دوباره تلاش فرمایید.');
     } finally {
       setProcessing(false);
     }
@@ -466,9 +518,31 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
 
   // Save Invoice
   const handleSaveInvoice = async () => {
+    // Prevent duplicate triggers, rapid multi-clicks, or re-saving an already saved invoice
+    if (isSaving || isSavingRef.current || savedInvoice) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastSaveTimestampRef.current < 2500) {
+      return;
+    }
+    lastSaveTimestampRef.current = now;
+    isSavingRef.current = true;
     setIsSaving(true);
+
+    if (!clientRequestIdRef.current) {
+      clientRequestIdRef.current = `req-${now}-${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    const chosenName = invoiceName.trim() || (customerName.trim() ? `فاکتور ${customerName.trim()}` : (items[0]?.name?.trim() ? `فاکتور ${items[0].name.trim()}` : 'فاکتور جدید'));
+
     try {
       const newInv = await onSaveInvoice({
+        client_request_id: clientRequestIdRef.current,
+        idempotency_key: clientRequestIdRef.current,
+        title: chosenName,
+        invoice_name: chosenName,
+        invoice_number: chosenName,
         customer_name: customerName,
         customer_phone: customerPhone,
         items: items.map((it) => ({
@@ -528,9 +602,178 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
       }
     } catch (err) {
       console.error('Error saving invoice:', err);
+      // Reset clientRequestId on actual error so user can retry safely
+      clientRequestIdRef.current = null;
+    } finally {
+      setIsSaving(false);
+      isSavingRef.current = false;
+    }
+  };
+
+  // Helper to inspect phone validity & format
+  const getPhoneValidation = (phone: string) => {
+    if (!phone) return null;
+    const cleanDigits = persianToEnglishDigits(phone).replace(/\D/g, '');
+    if (!cleanDigits) return null;
+
+    if (cleanDigits.startsWith('09')) {
+      if (cleanDigits.length === 11) {
+        return { type: 'valid' as const, message: 'شماره ۱۱ رقمی معتبر ✓', digits: cleanDigits, suggested: cleanDigits };
+      }
+      if (cleanDigits.length > 11) {
+        return {
+          type: 'extra' as const,
+          message: `شماره بیش از ۱۱ رقم است (${toPersianDigits(cleanDigits.length)} رقم) - رقم یا صفر اضافه دارد!`,
+          digits: cleanDigits,
+          suggested: cleanDigits.slice(0, 11),
+        };
+      }
+      return {
+        type: 'incomplete' as const,
+        message: `${toPersianDigits(cleanDigits.length)} از ۱۱ رقم وارد شده`,
+        digits: cleanDigits,
+        suggested: cleanDigits,
+      };
+    }
+
+    if (cleanDigits.startsWith('9') && cleanDigits.length === 10) {
+      return { type: 'valid' as const, message: 'شماره معتبر (بدون صفر اول) ✓', digits: '0' + cleanDigits, suggested: '0' + cleanDigits };
+    }
+
+    if (cleanDigits.startsWith('0098') || cleanDigits.startsWith('98')) {
+      const trimmed = cleanDigits.startsWith('0098') ? '0' + cleanDigits.substring(4) : '0' + cleanDigits.substring(2);
+      if (trimmed.length === 11) {
+        return { type: 'valid' as const, message: 'کد ایران شناسایی شد ✓', digits: trimmed, suggested: trimmed };
+      }
+    }
+
+    return null;
+  };
+
+  const phoneValidation = getPhoneValidation(customerPhone);
+
+  // Update existing saved invoice if fields were modified
+  const handleUpdateSavedInvoice = async () => {
+    if (!savedInvoice) return;
+    setIsSaving(true);
+    try {
+      const updatedTitle = invoiceName.trim() || savedInvoice.title || savedInvoice.invoice_number;
+      const res = await fetch(`/api/invoices/${savedInvoice.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': profile?.id || '',
+        },
+        body: JSON.stringify({
+          title: updatedTitle,
+          invoice_number: updatedTitle,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          items: items.map((it) => ({
+            id: it.id,
+            name: it.name || 'کالا / خدمت',
+            quantity: parseNum(it.quantity) || 1,
+            unit_price: parseNum(it.unit_price),
+          })),
+          discount: calculatedDiscountAmount,
+          discount_type: discountType,
+          discount_percent: discountType === 'percent' ? parsedDiscountNum : (subtotal > 0 && calculatedDiscountAmount > 0 ? Math.round((calculatedDiscountAmount / subtotal) * 100) : 0),
+          tax_rate: parseNum(taxRate),
+          total_amount: finalTotal,
+          notes,
+        }),
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        if (json.invoice) {
+          setSavedInvoice(json.invoice);
+          showNotice(`فاکتور «${json.invoice.title || json.invoice.invoice_number}» با موفقیت ذخیره و به‌روزرسانی شد.`, 'success');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update invoice:', err);
+      showNotice('خطا در به‌روزرسانی فاکتور');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Reset form to start a fresh invoice
+  const handleResetFormForNewInvoice = () => {
+    setSavedInvoice(null);
+    setInvoiceName('');
+    setCustomerName('');
+    setCustomerPhone('');
+    setItems([{ id: `itm-${Date.now()}`, name: '', quantity: '1', unit_price: '' }]);
+    setDiscountValue('');
+    setTaxRate('');
+    setNotes('');
+    setSimulatedText('');
+    clientRequestIdRef.current = null;
+    lastSaveTimestampRef.current = 0;
+    isSavingRef.current = false;
+    setIsSaving(false);
+  };
+
+  // Send WhatsApp message dynamically using current customerPhone & current savedInvoice
+  const handleSendWhatsAppDirect = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    const cleanPhone = formatPhoneForWhatsApp(customerPhone);
+
+    if (customerPhone.trim() && !cleanPhone) {
+      showNotice('فرمت شماره تلفن صحیح نیست. لطفاً یک شماره همراه ۱۱ رقمی معتبر وارد فرمایید (مثال: 09136516008).');
+      return;
+    }
+
+    // Sync updated phone to invoice in backend if savedInvoice exists
+    if (savedInvoice && savedInvoice.customer_phone !== customerPhone) {
+      try {
+        await fetch(`/api/invoices/${savedInvoice.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': profile?.id || '',
+          },
+          body: JSON.stringify({
+            customer_phone: customerPhone,
+            customer_name: customerName,
+          }),
+        });
+        setSavedInvoice((prev) => (prev ? { ...prev, customer_phone: customerPhone, customer_name: customerName } : null));
+      } catch (err) {
+        console.error('Failed to sync updated phone:', err);
+      }
+    }
+
+    const payUrl = savedInvoice ? `${window.location.origin}/payment/${savedInvoice.id}` : `${window.location.origin}/payment/inv-105`;
+    const itemsSummary = items
+      .filter((it) => it.name.trim())
+      .map((item, idx) => `${idx + 1}. ${item.name} (${item.quantity} عدد) - ${(Number(item.unit_price) || 0).toLocaleString('fa-IR')} ت`)
+      .join('\n');
+    const formattedAmount = finalTotal.toLocaleString('fa-IR');
+    const customerGreeting = customerName ? `${customerName} عزیز` : 'مشتری گرامی';
+    const invNumber = savedInvoice?.title || savedInvoice?.invoice_number || invoiceName.trim() || 'جدید';
+    const message = `سلام ${customerGreeting} 🌸\nفاکتور «${invNumber}» برای شما صادر شد.\n\n📋 *اقلام فاکتور:*\n${itemsSummary}\n\n💰 *مبلغ قابل پرداخت:* ${formattedAmount} تومان\n🔗 *لینک مشاهده و پرداخت آنلاین:*\n${payUrl}\n\nبا تشکر از اعتماد شما 🙏\n_صادر شده توسط فاکتورچی_`;
+
+    const wpUrl = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    // Also notify server to mark sent_via_whatsapp and update phone
+    try {
+      fetch('/api/whatsapp/send-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoice_id: savedInvoice?.id,
+          customer_phone: customerPhone,
+          origin: window.location.origin,
+        }),
+      }).catch(() => {});
+    } catch (err) {}
+
+    window.open(wpUrl, '_blank');
   };
 
   return (
@@ -547,6 +790,34 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
 
       {/* Left Column: Voice Input, Audio Controls, and Extraction Form */}
       <div className="xl:col-span-6 space-y-5">
+        {/* Voice Notice Banner */}
+        {voiceNotice && (
+          <div
+            className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-2 shadow-sm ${
+              voiceNotice.type === 'error'
+                ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300'
+                : voiceNotice.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300'
+                : 'bg-teal-50 dark:bg-teal-950/50 border-teal-200 dark:border-teal-900/60 text-teal-700 dark:text-teal-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {voiceNotice.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+              )}
+              <span className="font-medium leading-relaxed">{voiceNotice.message}</span>
+            </div>
+            <button
+              onClick={() => setVoiceNotice(null)}
+              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Voice Input Container */}
         <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-5 sm:p-6 shadow-sm">
           {/* Header */}
@@ -565,6 +836,37 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Expired Subscription Lock Alert */}
+          {isExpired && (
+            <div className="mb-5 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-500/30 text-rose-900 dark:text-rose-200 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-rose-600 text-white shrink-0 mt-0.5 shadow-sm">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div className="space-y-1.5 flex-1">
+                  <h4 className="font-bold text-sm text-rose-700 dark:text-rose-300">
+                    امکان صدور فاکتور صوتی غیرفعال است (پایان اشتراک)
+                  </h4>
+                  <p className="text-xs text-rose-800 dark:text-rose-300/90 leading-relaxed">
+                    اشتراک شما به پایان رسیده و حساب کاربری موقتاً قفل شده است. برای فعال‌سازی مجدد ۳۰ روزه، لطفاً فیش واریزی خود را در بخش مدیریت اشتراک بارگذاری فرمایید تا توسط مدیر سیستم بررسی و تأیید گردد.
+                  </p>
+                  {onNavigateToBilling && (
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={onNavigateToBilling}
+                        className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+                      >
+                        <CreditCard className="w-4 h-4" />
+                        <span>انتقال به صفحه ارسال فیش و تمدید اشتراک</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Collapsible Info & Guidance Box */}
           <div className="mb-5 rounded-2xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-500/20 overflow-hidden text-xs transition-all">
@@ -824,11 +1126,11 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
 
               {/* Recorded Audio Controls */}
               {audioUrl && !isRecording && (
-                <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 w-full flex items-center justify-between gap-3 bg-white/70 dark:bg-slate-800/70 p-3 rounded-xl">
+                <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 w-full flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white/70 dark:bg-slate-800/70 p-3 rounded-xl">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={togglePlayAudio}
-                      className="p-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+                      className="p-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors shrink-0"
                       title={isPlayingAudio ? 'توقف' : 'پخش'}
                     >
                       {isPlayingAudio ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -838,14 +1140,14 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 justify-end">
                     <button
                       onClick={() => {
                         setAudioUrl(null);
                         setAudioBlob(null);
                         setRecordDuration(0);
                       }}
-                      className="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                      className="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors shrink-0"
                       title="حذف و ضبط مجدد"
                     >
                       <RotateCcw className="w-4 h-4" />
@@ -853,7 +1155,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
                     <button
                       onClick={processVoiceWithAI}
                       disabled={processing}
-                      className="px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all hover:scale-[1.02]"
+                      className="flex-1 sm:flex-none px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.02]"
                     >
                       <Sparkles className="w-4 h-4" />
                       <span>پردازش با هوش مصنوعی</span>
@@ -891,7 +1193,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
               </div>
 
               {uploadedFile && (
-                <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 w-full flex items-center justify-between gap-3 bg-white/70 dark:bg-slate-800/70 p-3 rounded-xl">
+                <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 w-full flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white/70 dark:bg-slate-800/70 p-3 rounded-xl">
                   <div className="flex items-center gap-2 truncate">
                     <button
                       onClick={togglePlayAudio}
@@ -904,21 +1206,22 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 justify-end shrink-0">
                     <button
                       onClick={() => {
                         setUploadedFile(null);
                         setAudioUrl(null);
                         setAudioBlob(null);
                       }}
-                      className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg"
+                      className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"
+                      title="حذف فایل"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={processVoiceWithAI}
                       disabled={processing}
-                      className="px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm"
+                      className="flex-1 sm:flex-none px-3.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all"
                     >
                       <Sparkles className="w-4 h-4" />
                       <span>استخراج اطلاعات</span>
@@ -989,6 +1292,72 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
             </button>
           </div>
 
+          {/* Invoice Name / Title Input */}
+          <div className="p-3.5 rounded-2xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800/80 shadow-xs space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <label className="block text-xs font-bold text-teal-950 dark:text-teal-200 flex items-center gap-1.5">
+                <Tag className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                <span>نام یا عنوان فاکتور:</span>
+                <span className="text-[10px] font-normal text-teal-700 dark:text-teal-300">(به انتخاب شما؛ بدون شماره پیش‌فرض خودکار)</span>
+              </label>
+              {invoiceName.trim() ? (
+                <span className="text-[10px] text-teal-700 dark:text-teal-300 font-semibold flex items-center gap-1">
+                  <Check className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                  <span>ثبت با نام اختصاصی شما</span>
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                  می‌توانید عنوان دلخواه وارد کنید
+                </span>
+              )}
+            </div>
+            <input
+              type="text"
+              value={invoiceName}
+              onChange={(e) => setInvoiceName(e.target.value)}
+              placeholder="مثال: طراحی وب‌سایت آریا، سفارش خرید پوشاک، پروژه بازسازی یا عنوان دلخواه شما"
+              className="w-full px-3 py-2.5 text-xs font-bold rounded-xl bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-xs"
+            />
+            {/* Quick Suggestion Chips */}
+            <div className="flex items-center gap-1.5 pt-0.5 flex-wrap text-[10px]">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">پیشنهاد سریع:</span>
+              {customerName.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setInvoiceName(`فاکتور ${customerName.trim()}`)}
+                  className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 hover:bg-teal-100 dark:hover:bg-teal-950 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-teal-800 transition-colors cursor-pointer"
+                >
+                  فاکتور {customerName.trim()}
+                </button>
+              )}
+              {items[0]?.name?.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setInvoiceName(`فاکتور ${items[0].name.trim()}`)}
+                  className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 hover:bg-teal-100 dark:hover:bg-teal-950 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-teal-800 transition-colors cursor-pointer"
+                >
+                  فاکتور {items[0].name.trim()}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setInvoiceName(`پروژه ${customerName.trim() || 'اختصاصی'}`)}
+                className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 hover:bg-teal-100 dark:hover:bg-teal-950 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-teal-800 transition-colors cursor-pointer"
+              >
+                پروژه {customerName.trim() || 'اختصاصی'}
+              </button>
+              {invoiceName && (
+                <button
+                  type="button"
+                  onClick={() => setInvoiceName('')}
+                  className="px-1.5 py-0.5 rounded-md text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                >
+                  پاک کردن
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Customer info fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -1004,92 +1373,241 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                شماره تماس مشتری:
-              </label>
-              <input
-                type="tel"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                placeholder="09121234567"
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 text-left dir-ltr"
-              />
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  شماره تماس مشتری:
+                </label>
+                {phoneValidation && (
+                  <span
+                    className={`text-[11px] font-medium flex items-center gap-1 ${
+                      phoneValidation.type === 'valid'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : phoneValidation.type === 'extra'
+                        ? 'text-rose-500 dark:text-rose-400 font-bold'
+                        : 'text-slate-400'
+                    }`}
+                  >
+                    {phoneValidation.type === 'valid' && <Check className="w-3 h-3" />}
+                    {phoneValidation.type === 'extra' && <AlertCircle className="w-3 h-3 animate-pulse text-rose-500" />}
+                    <span>{phoneValidation.message}</span>
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="tel"
+                  value={customerPhone}
+                  onChange={(e) => {
+                    const engVal = persianToEnglishDigits(e.target.value).replace(/[^\d+]/g, '');
+                    setCustomerPhone(engVal);
+                    if (savedInvoice) {
+                      setSavedInvoice((prev) => (prev ? { ...prev, customer_phone: engVal } : null));
+                    }
+                  }}
+                  placeholder="09121234567"
+                  className={`w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border ${
+                    phoneValidation?.type === 'extra'
+                      ? 'border-rose-400 dark:border-rose-500 focus:ring-rose-500'
+                      : phoneValidation?.type === 'valid'
+                      ? 'border-emerald-400 dark:border-emerald-500 focus:ring-emerald-500'
+                      : 'border-slate-200 dark:border-slate-700 focus:ring-teal-500'
+                  } text-slate-900 dark:text-white focus:outline-none focus:ring-2 text-left dir-ltr`}
+                />
+              </div>
+              {phoneValidation?.type === 'extra' && (
+                <div className="mt-1.5 flex items-center justify-between p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-[11px]">
+                  <span className="text-rose-700 dark:text-rose-300 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                    <span>یک یا چند صفر/رقم اضافی است ({toPersianDigits(phoneValidation.digits.length)} رقم)</span>
+                  </span>
+                  {phoneValidation.suggested && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomerPhone(phoneValidation.suggested!);
+                        if (savedInvoice) {
+                          setSavedInvoice((prev) => (prev ? { ...prev, customer_phone: phoneValidation.suggested! } : null));
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] transition-colors cursor-pointer"
+                    >
+                      اصلاح خودکار به ۱۱ رقم
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Items Table */}
           <div className="space-y-2">
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-              اقلام کالا و خدمات:
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                اقلام کالا و خدمات:
+              </label>
+              {/* Desktop table column headers */}
+              <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-medium px-2 w-[calc(100%-8rem)]">
+                <span className="col-span-6">شرح کالا یا خدمت</span>
+                <span className="col-span-2 text-center">تعداد</span>
+                <span className="col-span-3 text-right">قیمت واحد (تومان)</span>
+                <span className="col-span-1"></span>
+              </div>
+            </div>
+
             <div className="space-y-2">
-              {items.map((item, idx) => (
-                <div
-                  key={item.id || idx}
-                  className="grid grid-cols-12 gap-2 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 items-center text-xs"
-                >
-                  {/* Name */}
-                  <div className="col-span-5 sm:col-span-6">
-                    <input
-                      type="text"
-                      value={item.name}
-                      onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
-                      placeholder="شرح کالا یا خدمت"
-                      className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                    />
-                  </div>
+              {items.map((item, idx) => {
+                const rowTotal = (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+                return (
+                  <div key={item.id || idx}>
+                    {/* Desktop View (Table Grid) */}
+                    <div className="hidden sm:grid grid-cols-12 gap-2 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 items-center text-xs">
+                      {/* Name */}
+                      <div className="col-span-6">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
+                          placeholder="شرح کالا یا خدمت"
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        />
+                      </div>
 
-                  {/* Quantity */}
-                  <div className="col-span-2">
-                    <div dir="ltr" className="w-full">
-                      <input
-                        type="text"
-                        dir="ltr"
-                        value={item.quantity ? toPersianDigits(item.quantity) : ''}
-                        onChange={(e) => {
-                          const raw = removeCommas(persianToEnglishDigits(e.target.value));
-                          if (/^\d*$/.test(raw)) {
-                            handleItemChange(idx, 'quantity', raw);
-                          }
-                        }}
-                        placeholder="۱"
-                        className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-center font-mono [direction:ltr]"
-                      />
+                      {/* Quantity */}
+                      <div className="col-span-2">
+                        <div dir="ltr" className="w-full">
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={item.quantity ? toPersianDigits(item.quantity) : ''}
+                            onChange={(e) => {
+                              const raw = removeCommas(persianToEnglishDigits(e.target.value));
+                              if (/^\d*$/.test(raw)) {
+                                handleItemChange(idx, 'quantity', raw);
+                              }
+                            }}
+                            placeholder="۱"
+                            className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-center font-mono [direction:ltr]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Unit price */}
+                      <div className="col-span-3">
+                        <div dir="ltr" className="w-full">
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={item.unit_price ? formatNumberWithCommas(item.unit_price) : ''}
+                            onChange={(e) => {
+                              const raw = removeCommas(persianToEnglishDigits(e.target.value));
+                              if (/^\d*$/.test(raw)) {
+                                handleItemChange(idx, 'unit_price', raw);
+                              }
+                            }}
+                            placeholder="۰"
+                            className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-right font-mono [direction:ltr]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Remove */}
+                      <div className="col-span-1 flex justify-center">
+                        <button
+                          onClick={() => removeItemRow(idx)}
+                          disabled={items.length <= 1}
+                          className="text-slate-400 hover:text-rose-500 disabled:opacity-30 transition-colors p-1"
+                          title="حذف ردیف"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mobile View (Touch-friendly Card) */}
+                    <div className="sm:hidden p-3 rounded-2xl bg-slate-50/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/70 space-y-2.5 text-xs shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-teal-700 dark:text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-md border border-teal-500/20">
+                          ردیف {toPersianDigits(idx + 1)}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {rowTotal > 0 && (
+                            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                              {formatToman(rowTotal)}
+                            </span>
+                          )}
+                          <button
+                            onClick={() => removeItemRow(idx)}
+                            disabled={items.length <= 1}
+                            className="text-slate-400 hover:text-rose-500 disabled:opacity-30 transition-colors p-1"
+                            title="حذف ردیف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Description Input */}
+                      <div>
+                        <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-medium">
+                          شرح کالا یا خدمت:
+                        </label>
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
+                          placeholder="نام کالا یا نوع خدمت..."
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+
+                      {/* Quantity & Unit Price */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-medium">
+                            تعداد:
+                          </label>
+                          <div dir="ltr" className="w-full">
+                            <input
+                              type="text"
+                              dir="ltr"
+                              value={item.quantity ? toPersianDigits(item.quantity) : ''}
+                              onChange={(e) => {
+                                const raw = removeCommas(persianToEnglishDigits(e.target.value));
+                                if (/^\d*$/.test(raw)) {
+                                  handleItemChange(idx, 'quantity', raw);
+                                }
+                              }}
+                              placeholder="۱"
+                              className="w-full px-2.5 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-center font-mono [direction:ltr]"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-1 font-medium">
+                            قیمت واحد (تومان):
+                          </label>
+                          <div dir="ltr" className="w-full">
+                            <input
+                              type="text"
+                              dir="ltr"
+                              value={item.unit_price ? formatNumberWithCommas(item.unit_price) : ''}
+                              onChange={(e) => {
+                                const raw = removeCommas(persianToEnglishDigits(e.target.value));
+                                if (/^\d*$/.test(raw)) {
+                                  handleItemChange(idx, 'unit_price', raw);
+                                }
+                              }}
+                              placeholder="۰"
+                              className="w-full px-2.5 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-right font-mono [direction:ltr]"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Unit price */}
-                  <div className="col-span-4 sm:col-span-3">
-                    <div dir="ltr" className="w-full">
-                      <input
-                        type="text"
-                        dir="ltr"
-                        value={item.unit_price ? formatNumberWithCommas(item.unit_price) : ''}
-                        onChange={(e) => {
-                          const raw = removeCommas(persianToEnglishDigits(e.target.value));
-                          if (/^\d*$/.test(raw)) {
-                            handleItemChange(idx, 'unit_price', raw);
-                          }
-                        }}
-                        placeholder="۰"
-                        className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-right font-mono [direction:ltr]"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Remove */}
-                  <div className="col-span-1 flex justify-center">
-                    <button
-                      onClick={() => removeItemRow(idx)}
-                      disabled={items.length <= 1}
-                      className="text-slate-400 hover:text-rose-500 disabled:opacity-30 transition-colors"
-                      title="حذف ردیف"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -1221,19 +1739,43 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
 
           {/* Action Buttons */}
           <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
-            <button
-              id="save-invoice-btn"
-              onClick={handleSaveInvoice}
-              disabled={isSaving}
-              className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 hover:from-teal-700 hover:to-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-teal-500/25 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
-            >
-              {isSaving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4" />
-              )}
-              <span>ثبت و صدور فاکتور نهایی</span>
-            </button>
+            {savedInvoice ? (
+              <>
+                <button
+                  type="button"
+                  id="update-invoice-btn"
+                  onClick={handleUpdateSavedInvoice}
+                  disabled={isSaving}
+                  className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 hover:from-teal-700 hover:to-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-teal-500/25 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  <span>ذخیره تغییرات در فاکتور «{savedInvoice.title || savedInvoice.invoice_number}»</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetFormForNewInvoice}
+                  className="w-full sm:w-auto py-3 px-4 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>صدور فاکتور جدید</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                id="save-invoice-btn"
+                onClick={handleSaveInvoice}
+                disabled={isSaving || !!savedInvoice}
+                className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 hover:from-teal-700 hover:to-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-teal-500/25 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>ثبت و صدور فاکتور نهایی</span>
+              </button>
+            )}
           </div>
 
           {/* Post-save WhatsApp Direct Share & Payment Link Banner */}
@@ -1242,7 +1784,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-200 font-bold">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                  <span>فاکتور با شماره {savedInvoice.invoice_number} با موفقیت ثبت شد!</span>
+                  <span>فاکتور «{savedInvoice.title || savedInvoice.invoice_number}» با موفقیت ثبت شد!</span>
                 </div>
                 {onNavigateToInvoice && (
                   <button
@@ -1266,12 +1808,14 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
                     onClick={async () => {
                       const payUrl = `${window.location.origin}/payment/${savedInvoice.id}`;
                       await copyToClipboard(payUrl);
-                      alert(`لینک پرداخت با موفقیت کپی شد:\n${payUrl}`);
+                      setCopiedPayLink(true);
+                      setTimeout(() => setCopiedPayLink(false), 2000);
+                      showNotice('لینک پرداخت با موفقیت کپی شد', 'success');
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold text-xs flex items-center gap-1.5 hover:bg-teal-700 active:scale-95 transition-all shadow-xs"
+                    className="px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold text-xs flex items-center gap-1.5 hover:bg-teal-700 active:scale-95 transition-all shadow-xs cursor-pointer"
                   >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>کپی لینک پرداخت</span>
+                    {copiedPayLink ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedPayLink ? 'کپی شد ✓' : 'کپی لینک پرداخت'}</span>
                   </button>
                   <a
                     href={`/payment/${savedInvoice.id}`}
@@ -1285,22 +1829,26 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
                 </div>
               </div>
 
-              {whatsappLink && (
-                <div className="pt-2 border-t border-emerald-500/20 flex flex-col sm:flex-row items-center justify-between gap-2">
-                  <span className="text-slate-700 dark:text-slate-300">
-                    ارسال مستقیم پیام حاوی لینک پرداخت به واتس‌اپ مشتری:
-                  </span>
-                  <a
-                    href={whatsappLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>ارسال در واتس‌اپ</span>
-                  </a>
+              <div className="pt-2 border-t border-emerald-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-slate-700 dark:text-slate-300 flex items-center gap-1.5 flex-wrap">
+                  <span>ارسال به واتس‌اپ مشتری:</span>
+                  {customerPhone ? (
+                    <span className="font-bold text-teal-700 dark:text-teal-300 dir-ltr bg-teal-50 dark:bg-teal-950/60 px-2 py-0.5 rounded-md border border-teal-200 dark:border-teal-800 text-xs">
+                      {toPersianDigits(customerPhone)}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 text-[11px]">(شماره وارد نشده است)</span>
+                  )}
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={handleSendWhatsAppDirect}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>ارسال مستقیم در واتس‌اپ</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1345,9 +1893,9 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
               <div className="text-left text-xs space-y-1">
                 <div className="flex items-center justify-end gap-2 text-slate-600">
                   <span className="font-bold text-slate-800">
-                    {savedInvoice?.invoice_number || 'پیش‌نویس فاکتور'}
+                    {invoiceName.trim() || savedInvoice?.title || savedInvoice?.invoice_number || 'پیش‌نویس فاکتور'}
                   </span>
-                  <span>:شماره فاکتور</span>
+                  <span>:نام / عنوان فاکتور</span>
                 </div>
                 <div className="flex items-center justify-end gap-2 text-slate-500">
                   <span>{new Date().toLocaleDateString('fa-IR')}</span>

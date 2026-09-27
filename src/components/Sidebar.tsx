@@ -8,6 +8,8 @@ import {
   Shield,
   Mic,
   Sparkles,
+  Compass,
+  Lock,
 } from 'lucide-react';
 import { NavigationTab, Profile } from '../types';
 
@@ -16,6 +18,7 @@ interface SidebarProps {
   onNavigate: (tab: NavigationTab) => void;
   profile: Profile;
   pendingRequestsCount?: number;
+  onStartTour?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -23,7 +26,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
   profile,
   pendingRequestsCount = 0,
+  onStartTour,
 }) => {
+  const isUserAdmin = profile.role === 'admin' || profile.email?.toLowerCase() === 'bagherikiarash74@gmail.com';
+  const isExpired = !isUserAdmin && profile.subscription_status === 'expired';
+
   const navItems = [
     {
       id: 'dashboard' as NavigationTab,
@@ -32,10 +39,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'new-invoice' as NavigationTab,
-      label: 'فاکتور صوتی جدید',
-      icon: PlusCircle,
-      badge: 'هوش مصنوعی',
-      badgeColor: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20',
+      label: isExpired ? 'فاکتور صوتی (قفل)' : 'فاکتور صوتی جدید',
+      icon: isExpired ? Lock : PlusCircle,
+      badge: isExpired ? 'قفل اشتراک' : 'هوش مصنوعی',
+      badgeColor: isExpired
+        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
+        : 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20',
     },
     {
       id: 'invoices' as NavigationTab,
@@ -54,7 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  if (profile.role === 'admin') {
+  if (isUserAdmin) {
     navItems.push({
       id: 'admin' as NavigationTab,
       label: 'پنل مدیریت پرداخت‌ها',
@@ -122,27 +131,61 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           );
         })}
+
+        {/* Guided Tour Sidebar Button */}
+        {onStartTour && (
+          <div className="pt-2">
+            <button
+              id="sidebar-tour-btn"
+              type="button"
+              onClick={onStartTour}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold text-teal-700 dark:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/20 transition-all group"
+            >
+              <div className="flex items-center gap-2.5">
+                <Compass className="w-4 h-4 text-teal-600 dark:text-teal-400 group-hover:rotate-45 transition-transform duration-300" />
+                <span>تور راهنمای سایت</span>
+              </div>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-teal-600 text-white shadow-xs">
+                آموزش
+              </span>
+            </button>
+          </div>
+        )}
       </nav>
 
-      {/* Subscription Quick Box (Clean, zero mention of free trial) */}
+      {/* Subscription Quick Box */}
       <div className="mt-auto pt-4 border-t border-slate-200/60 dark:border-slate-800/80">
-        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-teal-50 to-emerald-50 dark:from-slate-800/70 dark:to-slate-800/30 border border-teal-500/20 text-xs">
+        <div className={`p-3.5 rounded-2xl border text-xs transition-colors ${
+          isExpired
+            ? 'bg-gradient-to-br from-rose-50 to-amber-50 dark:from-rose-950/40 dark:to-slate-800/40 border-rose-500/30'
+            : 'bg-gradient-to-br from-teal-50 to-emerald-50 dark:from-slate-800/70 dark:to-slate-800/30 border-teal-500/20'
+        }`}>
           <div className="flex items-center justify-between mb-1.5">
             <span className="font-bold text-slate-800 dark:text-slate-200">وضعیت حساب</span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-              {profile.role === 'admin' ? 'مدیر سیستم' : profile.subscription_status === 'active' ? 'فعال' : 'نیاز به تمدید'}
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              isUserAdmin
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                : isExpired
+                ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-black'
+                : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+            }`}>
+              {isUserAdmin ? 'مدیر سیستم' : isExpired ? 'منقضی شده (قفل)' : 'فعال'}
             </span>
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-            {profile.role === 'admin'
+            {isUserAdmin
               ? 'دسترسی نامحدود و دائمی به تمامی امکانات'
+              : isExpired
+              ? 'اشتراک منقضی شده؛ برای صدور فاکتور صوتی فیش واریز ثبت کنید.'
               : 'دسترسی به تمامی امکانات صوتی و گزارشات'}
           </p>
           <button
             onClick={() => onNavigate('billing')}
-            className="w-full py-1.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-medium text-[11px] transition-colors text-center"
+            className={`w-full py-1.5 px-3 rounded-xl font-medium text-[11px] transition-colors text-center text-white ${
+              isExpired ? 'bg-rose-600 hover:bg-rose-700 shadow-xs animate-pulse' : 'bg-teal-600 hover:bg-teal-700'
+            }`}
           >
-            {profile.role === 'admin' ? 'مشاهده جزئیات حساب' : 'مدیریت اشتراک'}
+            {isUserAdmin ? 'مشاهده جزئیات حساب' : isExpired ? 'ارسال فیش و فعال‌سازی ۳۰ روزه' : 'مدیریت اشتراک'}
           </button>
         </div>
       </div>

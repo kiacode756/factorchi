@@ -34,6 +34,7 @@ import {
   formatNumberWithCommas, 
   copyToClipboard 
 } from '../lib/utils';
+import { ReceiptLightboxModal } from './ReceiptImageViewer';
 
 interface PaymentPageProps {
   invoiceId?: string;
@@ -63,7 +64,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     const match = path.match(/\/(?:payment|pay)\/([^/?#]+)/i);
     if (match && match[1]) return match[1];
     const searchParams = new URLSearchParams(window.location.search);
-    return searchParams.get('id') || searchParams.get('invoiceId') || 'inv-101';
+    return searchParams.get('id') || searchParams.get('invoiceId') || '';
   });
 
   const [loading, setLoading] = useState(true);
@@ -79,6 +80,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   const [copiedAmount, setCopiedAmount] = useState(false);
   const [copiedSheba, setCopiedSheba] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedTracking, setCopiedTracking] = useState(false);
 
   // Confirmation Form State
   const [payerName, setPayerName] = useState('');
@@ -92,6 +94,8 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   const [submittedTracking, setSubmittedTracking] = useState('');
   const [submittedReceipt, setSubmittedReceipt] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [compressingImage, setCompressingImage] = useState(false);
   const [previewImageModal, setPreviewImageModal] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -160,6 +164,9 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
 
     if (invoiceId) {
       fetchInvoiceData();
+    } else {
+      setLoading(false);
+      setError('شناسه فاکتوری برای پرداخت مشخص نشده است.');
     }
   }, [invoiceId]);
 
@@ -200,23 +207,107 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     }
   };
 
-  // Handle receipt image selection
-  const handleFileSelect = (file: File) => {
+  // Client-side image compression for fast and reliable uploading
+  const compressReceiptImage = (
+    file: File,
+    maxWidth = 1280,
+    maxHeight = 1280,
+    quality = 0.82
+  ): Promise<{ file: File; dataUrl: string }> => {
+    return new Promise((resolve) => {
+      // Non-image or SVG: resolve original
+      if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ file, dataUrl: reader.result as string });
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ file, dataUrl: reader.result as string });
+          reader.readAsDataURL(file);
+          return;
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const targetType = 'image/jpeg';
+        const dataUrl = canvas.toDataURL(targetType, quality);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const originalBase = file.name.replace(/\.[^/.]+$/, '');
+            const compressedFile = new File([blob], `${originalBase}_opt.jpg`, {
+              type: targetType,
+              lastModified: Date.now(),
+            });
+            resolve({ file: compressedFile, dataUrl });
+          } else {
+            resolve({ file, dataUrl });
+          }
+        }, targetType, quality);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        const reader = new FileReader();
+        reader.onload = () => resolve({ file, dataUrl: reader.result as string });
+        reader.readAsDataURL(file);
+      };
+      img.src = objectUrl;
+    });
+  };
+
+  // Handle receipt image selection with automatic compression
+  const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith('image/')) {
-      alert('لطفاً یک فایل تصویری معتبر (JPG, PNG, WebP) انتخاب کنید.');
+      setSubmitError('لطفاً یک فایل تصویری معتبر (JPG, PNG, WebP) انتخاب فرمایید.');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      alert('حجم تصویر فیش واریزی نباید بیشتر از ۱۰ مگابایت باشد.');
+    if (file.size > 25 * 1024 * 1024) {
+      setSubmitError('حجم تصویر فیش واریزی نباید بیشتر از ۲۵ مگابایت باشد.');
       return;
     }
 
-    setReceiptFile(file);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setReceiptPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    setSubmitError(null);
+    setCompressingImage(true);
+
+    try {
+      // Auto-compress to ~150-250KB for instantaneous upload without proxy 413 errors
+      const result = await compressReceiptImage(file, 1280, 1280, 0.82);
+      setReceiptFile(result.file);
+      setReceiptPreview(result.dataUrl);
+    } catch (e) {
+      console.warn('Compression error fallback:', e);
+      setReceiptFile(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setReceiptPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setCompressingImage(false);
+    }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -236,6 +327,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   const removeReceipt = () => {
     setReceiptFile(null);
     setReceiptPreview(null);
+    setSubmitError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -244,53 +336,84 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   // Confirm payment via card-to-card or gateway
   const handleConfirmPayment = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    setSubmitError(null);
     
-    const code = trackingCode.trim();
-    if (!code && paymentMethod === 'card') {
-      alert('لطفاً شماره ارجاع یا کد پیگیری تراکنش بانکی را وارد فرمایید.');
-      return;
-    }
+    // Normalize Persian/Arabic digits to English digits
+    const rawCode = persianToEnglishDigits(trackingCode).trim();
+    const cleanCode = rawCode.replace(/[^a-zA-Z0-9_-]/g, '');
 
-    if (paymentMethod === 'card' && code.length < 5) {
-      alert('شماره پیگیری باید حداقل ۵ رقم باشد.');
-      return;
+    if (paymentMethod === 'card') {
+      if (!cleanCode) {
+        setSubmitError('لطفاً شماره ارجاع یا کد پیگیری تراکنش بانکی را وارد فرمایید.');
+        return;
+      }
+      if (cleanCode.length < 5) {
+        setSubmitError('شماره پیگیری باید حداقل ۵ رقم باشد.');
+        return;
+      }
     }
 
     setConfirming(true);
     try {
-      const generatedCode = code || `TRX-${Date.now().toString().slice(-6)}`;
+      const generatedCode = cleanCode || `TRX-${Date.now().toString().slice(-6)}`;
+      const targetInvoiceId = invoice?.id || invoiceId;
+      const targetInvoiceNumber = invoice?.invoice_number || '';
 
-      // Prepare request either as FormData (if file attached) or JSON
-      let res: Response;
+      let res: Response | null = null;
+      let lastErrorMessage = '';
+
+      // Primary submission method: FormData if receipt file is attached
       if (receiptFile) {
-        const formData = new FormData();
-        formData.append('tracking_number', generatedCode);
-        formData.append('tracking_code', generatedCode);
-        formData.append('payer_name', payerName.trim());
-        formData.append('payer_card', payerCard.trim());
-        formData.append('payment_method', paymentMethod === 'card' ? 'card_to_card' : 'online_gateway');
-        formData.append('receipt_image', receiptFile);
+        try {
+          const formData = new FormData();
+          formData.append('invoice_id', targetInvoiceId);
+          if (targetInvoiceNumber) {
+            formData.append('invoice_number', targetInvoiceNumber);
+          }
+          formData.append('tracking_number', generatedCode);
+          formData.append('tracking_code', generatedCode);
+          formData.append('payer_name', payerName.trim());
+          formData.append('payer_card', persianToEnglishDigits(payerCard).trim());
+          formData.append('payment_method', paymentMethod === 'card' ? 'card_to_card' : 'online_gateway');
+          formData.append('receipt_image', receiptFile);
 
-        res = await fetch(`/api/payment/${invoiceId}/confirm`, {
-          method: 'POST',
-          body: formData,
-        });
-      } else {
-        res = await fetch(`/api/payment/${invoiceId}/confirm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tracking_number: generatedCode,
-            tracking_code: generatedCode,
-            payer_name: payerName.trim(),
-            payer_card: payerCard.trim(),
-            payment_method: paymentMethod === 'card' ? 'card_to_card' : 'online_gateway',
-            receipt_image_url: receiptPreview || undefined,
-          }),
-        });
+          res = await fetch(`/api/payment/${encodeURIComponent(targetInvoiceId)}/confirm`, {
+            method: 'POST',
+            body: formData,
+          });
+        } catch (uploadNetErr: any) {
+          console.warn('Multipart upload fetch notice, attempting JSON fallback:', uploadNetErr);
+        }
       }
 
-      if (res.ok) {
+      // Secondary fallback: JSON payload if no file or if FormData upload faced proxy issue
+      if (!res || !res.ok) {
+        if (res) {
+          const errData = await res.json().catch(() => ({}));
+          lastErrorMessage = errData.error || '';
+        }
+
+        try {
+          res = await fetch(`/api/payment/${encodeURIComponent(targetInvoiceId)}/confirm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              invoice_id: targetInvoiceId,
+              invoice_number: targetInvoiceNumber,
+              tracking_number: generatedCode,
+              tracking_code: generatedCode,
+              payer_name: payerName.trim(),
+              payer_card: persianToEnglishDigits(payerCard).trim(),
+              payment_method: paymentMethod === 'card' ? 'card_to_card' : 'online_gateway',
+              receipt_image_url: receiptPreview || undefined,
+            }),
+          });
+        } catch (jsonNetErr: any) {
+          console.error('JSON confirm error:', jsonNetErr);
+        }
+      }
+
+      if (res && res.ok) {
         const data = await res.json();
         if (data.success) {
           setPaidSuccess(true);
@@ -310,16 +433,18 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
               payer_name: payerName,
             });
           }
+          return;
         } else {
-          alert(data.error || 'خطا در ثبت پرداخت.');
+          setSubmitError(data.error || lastErrorMessage || 'خطا در ثبت پرداخت.');
         }
       } else {
-        const errJson = await res.json().catch(() => ({}));
-        alert(errJson.error || 'خطا در ارتباط با سرور پرداخت.');
+        const errJson = res ? await res.json().catch(() => ({})) : {};
+        const msg = errJson.error || lastErrorMessage || (res?.status === 413 ? 'حجم تصویر فیش ارسالی بیش از حد مجاز است. لطفاً فایل کم‌حجم‌تری انتخاب فرمایید.' : 'خطا در ارتباط با سرور پرداخت.');
+        setSubmitError(msg);
       }
-    } catch (err) {
-      console.error(err);
-      alert('خطا در ارسال اطلاعات پرداخت.');
+    } catch (err: any) {
+      console.error('Payment confirm error:', err);
+      setSubmitError('خطا در ارتباط و ارسال اطلاعات پرداخت. لطفاً اتصال اینترنت خود را بررسی و مجدداً تلاش کنید.');
     } finally {
       setConfirming(false);
     }
@@ -492,12 +617,13 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                     type="button"
                     onClick={async () => {
                       await copyToClipboard(trackingNumberToShow);
-                      alert('شماره پیگیری کپی شد.');
+                      setCopiedTracking(true);
+                      setTimeout(() => setCopiedTracking(false), 2000);
                     }}
-                    className="px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 hover:bg-amber-200 text-xs font-semibold flex items-center gap-1"
+                    className="px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 hover:bg-amber-200 text-xs font-semibold flex items-center gap-1 transition-colors"
                   >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>کپی کد</span>
+                    {copiedTracking ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedTracking ? 'کپی شد ✓' : 'کپی کد'}</span>
                   </button>
                 </div>
               )}
@@ -567,9 +693,9 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
               </h1>
             </div>
             <div className="text-right sm:text-left space-y-1">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-slate-200">
-                <span>شماره:</span>
-                <span dir="ltr">{invoice.invoice_number}</span>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200">
+                <span>{invoice.title ? 'عنوان فاکتور:' : 'شماره:'}</span>
+                <span>{invoice.title || invoice.invoice_number}</span>
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">
                 تاریخ صدور: {formatPersianDate(invoice.created_at)}
@@ -808,7 +934,14 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                       تصویر فیش یا رسید واریز (توصیه‌شده):
                     </label>
 
-                    {receiptPreview ? (
+                    {compressingImage ? (
+                      <div className="rounded-2xl border-2 border-teal-500/40 bg-teal-50/40 dark:bg-teal-950/30 p-4 text-center flex flex-col items-center justify-center gap-2">
+                        <div className="w-6 h-6 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-xs font-bold text-teal-800 dark:text-teal-200">
+                          در حال بهینه‌سازی و کاهش حجم تصویر فیش برای ارسال سریع و مطمئن...
+                        </span>
+                      </div>
+                    ) : receiptPreview ? (
                       <div className="relative rounded-2xl border-2 border-teal-500/30 bg-teal-50/20 dark:bg-teal-950/20 p-3 flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
                           <img
@@ -818,11 +951,11 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                             onClick={() => setPreviewImageModal(receiptPreview)}
                           />
                           <div className="space-y-1">
-                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate max-w-[200px] sm:max-w-xs">
                               {receiptFile?.name || 'تصویر فیش انتخاب شد'}
                             </span>
-                            <span className="text-[11px] text-slate-500">
-                              {receiptFile ? `${Math.round(receiptFile.size / 1024)} کیلوبایت` : 'آماده ارسال'}
+                            <span className="text-[11px] text-teal-600 dark:text-teal-400 font-medium">
+                              {receiptFile ? `${Math.round(receiptFile.size / 1024)} کیلوبایت (بهینه‌شده برای ارسال سریع)` : 'آماده ارسال'}
                             </span>
                           </div>
                         </div>
@@ -876,7 +1009,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                             کلیک کنید یا تصویر فیش بانکی را اینجا رها کنید
                           </div>
                           <p className="text-[11px] text-slate-400">
-                            فرمت‌های JPG، PNG و WebP (حداکثر ۱۰ مگابایت)
+                            فرمت‌های JPG، PNG و WebP (حداکثر ۲۵ مگابایت)
                           </p>
                         </div>
                       </div>
@@ -892,7 +1025,10 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                         type="text"
                         required
                         value={trackingCode}
-                        onChange={(e) => setTrackingCode(e.target.value)}
+                        onChange={(e) => {
+                          setTrackingCode(e.target.value);
+                          if (submitError) setSubmitError(null);
+                        }}
                         placeholder="مثال: ۹۸۷۶۵۴۳۲۱"
                         className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                       />
@@ -929,13 +1065,23 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                     💡 <strong>توجه خریدار گرامی:</strong> پس از ثبت فرم، صاحب فاکتور شماره پیگیری درج‌شده را با رسید واریزی مطابقت داده و وضعیت فاکتور را به «پرداخت شده» تغییر خواهد داد.
                   </p>
 
+                  {submitError && (
+                    <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-400 text-xs flex items-center gap-2.5 animate-shake">
+                      <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
+                      <div className="flex-1 font-medium">{submitError}</div>
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    disabled={confirming}
+                    disabled={confirming || compressingImage}
                     className="w-full py-3.5 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-teal-600/20 transition-transform active:scale-[0.99] disabled:opacity-50"
                   >
                     {confirming ? (
-                      <span>در حال ثبت اطلاعات و آپلود رسید...</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>در حال ثبت اطلاعات و ارسال رسید...</span>
+                      </div>
                     ) : (
                       <>
                         <CheckCircle2 className="w-5 h-5" />
@@ -994,35 +1140,14 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
 
       {/* Lightbox Modal for Receipt Image Preview */}
       {previewImageModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setPreviewImageModal(null)}
-        >
-          <div
-            className="relative max-w-3xl max-h-[90vh] bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-700 flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-white text-xs font-bold">
-                <ImageIcon className="w-4 h-4 text-teal-400" />
-                <span>تصویر فیش / رسید واریز بانکی</span>
-              </div>
-              <button
-                onClick={() => setPreviewImageModal(null)}
-                className="p-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 flex items-center justify-center overflow-auto max-h-[calc(90vh-100px)]">
-              <img
-                src={previewImageModal}
-                alt="رسید واریز پرداخت"
-                className="max-h-[75vh] w-auto object-contain rounded-xl shadow-lg"
-              />
-            </div>
-          </div>
-        </div>
+        <ReceiptLightboxModal
+          isOpen={!!previewImageModal}
+          onClose={() => setPreviewImageModal(null)}
+          src={previewImageModal}
+          alt="تصویر فیش واریزی پرداخت"
+          trackingNumber={trackingNumberToShow}
+          invoiceNumber={invoice?.invoice_number}
+        />
       )}
     </div>
   );

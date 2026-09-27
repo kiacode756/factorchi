@@ -140,8 +140,13 @@ class RealtimeService {
 
   private startBackupPoll() {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    // Intelligent backup poll: Only poll if SSE is NOT currently connected, and tab is visible
     this.pollTimer = setInterval(async () => {
       if (!this.currentUserId) return;
+      if (typeof document !== 'undefined' && document.hidden) return; // Pause while tab is inactive
+      if (this.isConnected && this.eventSource && this.eventSource.readyState === EventSource.OPEN) {
+        return; // SSE is actively connected and streaming; skip redundant HTTP polling!
+      }
       try {
         const url = `/api/realtime/poll?userId=${encodeURIComponent(this.currentUserId)}&since=${encodeURIComponent(this.lastPollTimestamp)}`;
         const res = await fetch(url, {
@@ -160,7 +165,7 @@ class RealtimeService {
       } catch {
         // quiet fallback
       }
-    }, 3500);
+    }, 8000);
   }
 
   private handleIncomingEvent(event: { id?: string; type: string; payload: any; targetUserId?: string; timestamp: string }, broadcastToOtherTabs = true) {
