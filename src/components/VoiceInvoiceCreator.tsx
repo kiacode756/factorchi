@@ -364,6 +364,11 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
       return;
     }
 
+    if (!isTextMode && currentAudio && currentAudio.size < 200 && (!textToSend || textToSend.trim().length < 2)) {
+      showNotice('صدای ضبط‌شده بسیار کوتاه یا فاقد محتوا است. لطفاً مجدداً دکمه ضبط را فشار داده و با صدای رسا صحبت فرمایید.');
+      return;
+    }
+
     setProcessing(true);
     setProcessStep(0); // Transcription step
 
@@ -386,6 +391,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
         response = await fetch('/api/ai/voice-to-invoice', {
           method: 'POST',
           headers: {
+            'Accept': 'application/json',
             'x-user-id': profile?.id || '',
           },
           body: formData,
@@ -396,6 +402,7 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
             'x-user-id': profile?.id || '',
           },
           body: JSON.stringify({ text: textToSend }),
@@ -405,60 +412,95 @@ export const VoiceInvoiceCreator: React.FC<VoiceInvoiceCreatorProps> = ({
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
 
+      const contentType = response.headers.get('content-type') || '';
+      const isJson = contentType.includes('application/json');
+
+      let result: any = null;
+      if (isJson) {
+        try {
+          result = await response.json();
+        } catch (jsonErr) {
+          console.warn('[Voice AI] Error parsing response JSON:', jsonErr);
+        }
+      }
+
       if (response.status === 403) {
-        const resErr = await response.json().catch(() => ({}));
-        showNotice(resErr.error || 'اشتراک شما منقضی شده است. برای فعال‌سازی ۳۰ روزه، فیش واریز را بارگذاری فرمایید.');
+        showNotice(result?.error || 'اشتراک شما منقضی شده است. برای فعال‌سازی ۳۰ روزه، فیش واریز را بارگذاری فرمایید.');
         if (onNavigateToBilling) onNavigateToBilling();
         setProcessing(false);
         return;
       }
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data) {
-          const d = result.data;
-          setTranscriptionText(d.transcription || textToSend || 'استخراج هوشمند اطلاعات فاکتور با هوش مصنوعی انجام شد');
-          if (d.invoice_name) setInvoiceName(d.invoice_name);
-          if (d.customer_name) setCustomerName(d.customer_name);
-          if (d.customer_phone) setCustomerPhone(d.customer_phone);
-          
-          const validItems = Array.isArray(d.items) && d.items.length > 0 
-            ? d.items.filter((it: any) => it.name && it.name.trim()) 
-            : [];
+      const applyInvoiceData = (d: any) => {
+        setTranscriptionText(d.transcription || textToSend || 'استخراج هوشمند اطلاعات فاکتور با هوش مصنوعی انجام شد');
+        if (d.invoice_name) setInvoiceName(d.invoice_name);
+        if (d.customer_name) setCustomerName(d.customer_name);
+        if (d.customer_phone) setCustomerPhone(d.customer_phone);
+        
+        const validItems = Array.isArray(d.items) && d.items.length > 0 
+          ? d.items.filter((it: any) => it.name && it.name.trim()) 
+          : [];
 
-          if (validItems.length > 0) {
-            setItems(
-              validItems.map((it: any, idx: number) => ({
-                id: `itm-${Date.now()}-${idx}`,
-                name: it.name || '',
-                quantity: it.quantity ? String(it.quantity) : '1',
-                unit_price: it.unit_price ? String(it.unit_price) : '',
-              }))
-            );
-          } else {
-            setItems([{ id: `itm-${Date.now()}-0`, name: '', quantity: '1', unit_price: '' }]);
-            if (!d.customer_name && !textToSend && (!d.transcription || d.transcription.length < 3)) {
-              showNotice('متن یا قلمی از ویس ضبط‌شده تشخیص داده نشد. لطفاً در محیطی آرام‌تر یا با صدای واضح‌تر صحبت فرمایید یا از تب «شبیه‌ساز متن گفتار» استفاده کنید.', 'info');
-            }
-          }
-
-          if (d.discount_type === 'percent') {
-            setDiscountType('percent');
-            setDiscountValue(d.discount_percent ? String(d.discount_percent) : '');
-          } else {
-            setDiscountType('amount');
-            setDiscountValue(typeof d.discount === 'number' && d.discount > 0 ? String(d.discount) : '');
-          }
-
-          setTaxRate(typeof d.tax_rate === 'number' && d.tax_rate > 0 ? String(d.tax_rate) : '');
-          if (d.notes) setNotes(d.notes);
-          if (d.confidence) setAiConfidence(d.confidence);
+        if (validItems.length > 0) {
+          setItems(
+            validItems.map((it: any, idx: number) => ({
+              id: `itm-${Date.now()}-${idx}`,
+              name: it.name || '',
+              quantity: it.quantity ? String(it.quantity) : '1',
+              unit_price: it.unit_price ? String(it.unit_price) : '',
+            }))
+          );
         } else {
-          showNotice(result.error || 'خطا در پردازش اطلاعات.');
+          setItems([{ id: `itm-${Date.now()}-0`, name: '', quantity: '1', unit_price: '' }]);
+          if (!d.customer_name && !textToSend && (!d.transcription || d.transcription.length < 3)) {
+            showNotice('متن یا قلمی از ویس ضبط‌شده تشخیص داده نشد. لطفاً در محیطی آرام‌تر یا با صدای واضح‌تر صحبت فرمایید یا از تب «شبیه‌ساز متن گفتار» استفاده کنید.', 'info');
+          }
         }
+
+        if (d.discount_type === 'percent') {
+          setDiscountType('percent');
+          setDiscountValue(d.discount_percent ? String(d.discount_percent) : '');
+        } else {
+          setDiscountType('amount');
+          setDiscountValue(typeof d.discount === 'number' && d.discount > 0 ? String(d.discount) : '');
+        }
+
+        setTaxRate(typeof d.tax_rate === 'number' && d.tax_rate > 0 ? String(d.tax_rate) : '');
+        if (d.notes) setNotes(d.notes);
+        if (d.confidence) setAiConfidence(d.confidence);
+      };
+
+      if (response.ok && result && result.success && result.data) {
+        applyInvoiceData(result.data);
+      } else if (!isJson) {
+        // Fallback: server/proxy returned non-JSON. If live transcript is present, retry with text
+        if (textToSend && textToSend.trim().length >= 2) {
+          try {
+            const retryResp = await fetch('/api/ai/voice-to-invoice', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'x-user-id': profile?.id || '',
+              },
+              body: JSON.stringify({ text: textToSend }),
+            });
+            const retryContentType = retryResp.headers.get('content-type') || '';
+            if (retryResp.ok && retryContentType.includes('application/json')) {
+              const retryData = await retryResp.json();
+              if (retryData?.success && retryData?.data) {
+                applyInvoiceData(retryData.data);
+                showNotice('اطلاعات فاکتور با موفقیت از متن گفتار استخراج شد.', 'success');
+                return;
+              }
+            }
+          } catch (retryErr) {
+            console.warn('[Voice AI] Text fallback failed:', retryErr);
+          }
+        }
+        showNotice('ارتباط با سرور برقرار نشد یا پاسخی نامعتبر دریافت گردید. لطفاً مجدداً تلاش فرمایید.');
       } else {
-        const errJson = await response.json().catch(() => ({}));
-        showNotice(errJson.error || 'خطا در برقراری ارتباط با سرویس هوش مصنوعی.');
+        showNotice(result?.error || 'خطا در برقراری ارتباط با سرویس هوش مصنوعی.');
       }
     } catch (err) {
       console.error('Error processing audio with AI:', err);

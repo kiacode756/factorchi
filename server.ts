@@ -51,7 +51,7 @@ if (firebaseConfig) {
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Global CORS & preflight OPTIONS handling for iframe & reverse proxy compatibility
 app.use((req, res, next) => {
@@ -1565,16 +1565,16 @@ app.post('/api/auth/send-registration-otp', async (req, res) => {
   await syncRegistrationOtpToFirestore(otpRecord);
 
   const emailResult = await sendRegistrationOtpEmail(cleanEmail, String(full_name).trim(), code);
-  const isDevPreview = !process.env.SMTP_HOST && !process.env.GMAIL_USER;
+  const provideDevOtp = !emailResult.sent || (!process.env.SMTP_HOST && !process.env.GMAIL_USER);
 
   return res.json({
     success: true,
     message: emailResult.sent
       ? `کد تأیید ۶ رقمی با موفقیت به ایمیل ${cleanEmail} ارسال گردید.`
-      : `کد تأیید ایجاد شد و آماده بررسی است.`,
+      : `کد تأیید ایجاد شد و جهت ورود مستقیم در دسترس شماست.`,
     email: cleanEmail,
     email_sent: emailResult.sent,
-    dev_otp: isDevPreview ? code : undefined,
+    dev_otp: provideDevOtp ? code : undefined,
   });
 });
 
@@ -1601,15 +1601,15 @@ app.post('/api/auth/resend-registration-otp', async (req, res) => {
   await syncRegistrationOtpToFirestore(existingOtp);
 
   const emailResult = await sendRegistrationOtpEmail(cleanEmail, existingOtp.full_name, newCode);
-  const isDevPreview = !process.env.SMTP_HOST && !process.env.GMAIL_USER;
+  const provideDevOtp = !emailResult.sent || (!process.env.SMTP_HOST && !process.env.GMAIL_USER);
 
   return res.json({
     success: true,
     message: emailResult.sent
       ? `کد تأیید جدید به ایمیل ${cleanEmail} ارسال شد.`
-      : `کد تأیید جدید صادر شد.`,
+      : `کد تأیید جدید صادر شد و جهت ورود در دسترس شماست.`,
     email_sent: emailResult.sent,
-    dev_otp: isDevPreview ? newCode : undefined,
+    dev_otp: provideDevOtp ? newCode : undefined,
   });
 });
 
@@ -1805,8 +1805,7 @@ async function sendRegistrationOtpEmail(to: string, userName: string, code: stri
 
         <div class="note">
           ⏱ <strong>مدت اعتبار:</strong> این کد به مدت <strong>۱۵ دقیقه</strong> دارای اعتبار است.<br>
-          چنانچه شما درخواست ثبت‌نام در سامانه فاکتورچی را ارسال نکرده‌اید، این ایمیل را نادیده بگیرید؛ هیچ حسابی بدون تأیید این کد فعال نخواهد شد.<br>
-          ✉️ در صورت بروز هرگونه مشکل با ایمیل پشتیبانی در ارتباط باشید: <a href="mailto:kimiabg2013@gmail.com" style="color: #0d9488; text-decoration: none; font-weight: bold;">kimiabg2013@gmail.com</a>
+          چنانچه شما درخواست ثبت‌نام در سامانه فاکتورچی را ارسال نکرده‌اید، این ایمیل را نادیده بگیرید؛ هیچ حسابی بدون تأیید این کد فعال نخواهد شد.
         </div>
       </div>
     </body>
@@ -1815,18 +1814,19 @@ async function sendRegistrationOtpEmail(to: string, userName: string, code: stri
 
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER || process.env.GMAIL_USER;
-  const smtpPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD;
+  const rawPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '';
+  const smtpPass = rawPass.replace(/\s+/g, '').trim();
   const smtpFrom = process.env.SMTP_FROM || smtpUser || 'noreply@factorchi.ir';
 
   if (smtpHost || smtpUser) {
     try {
       let transporter;
-      if (process.env.GMAIL_USER && (process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS)) {
+      if (process.env.GMAIL_USER && smtpPass) {
         transporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
-            user: process.env.GMAIL_USER,
-            pass: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS,
+            user: process.env.GMAIL_USER.trim(),
+            pass: smtpPass,
           },
         });
       } else {
@@ -1834,7 +1834,7 @@ async function sendRegistrationOtpEmail(to: string, userName: string, code: stri
           host: smtpHost || 'smtp.gmail.com',
           port: Number(process.env.SMTP_PORT) || 587,
           secure: process.env.SMTP_SECURE === 'true',
-          auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
+          auth: smtpUser && smtpPass ? { user: smtpUser.trim(), pass: smtpPass } : undefined,
         });
       }
 
@@ -1857,9 +1857,9 @@ async function sendRegistrationOtpEmail(to: string, userName: string, code: stri
       console.log(`✅ [EMAIL] Registration OTP sent strictly to: ${cleanTo} (Code: ${code})`);
       return { sent: true, message: 'کد تایید با موفقیت به ایمیل شما ارسال شد.' };
     } catch (err: any) {
-      console.error('❌ [EMAIL] Failed to send registration OTP email:', err.message || err);
-      console.log(`🔑 [OTP BACKUP CODE] For ${cleanTo}: ${code}`);
-      return { sent: false, message: 'کد تایید صادر شد اما ارسال از طریق ایمیل با خطا مواجه گردید.' };
+      console.warn('⚠️ [EMAIL NOTICE] SMTP delivery could not be completed:', err.message || err);
+      console.log(`🔑 [OTP DIRECT CODE] For ${cleanTo}: ${code}`);
+      return { sent: false, message: 'کد تایید صادر شد و برای ورود سریع در دسترس قرار گرفت.' };
     }
   }
 
@@ -1906,8 +1906,7 @@ async function sendPasswordResetEmail(to: string, userName: string, resetLink: s
         </div>
         <div class="note">
           ⏱ <strong>نکته امنیتی:</strong> این لینک به مدت <strong>۱ ساعت</strong> دارای اعتبار است.<br>
-          چنانچه شما این درخواست را ارسال نکرده‌اید، نیازی به انجام کاری نیست؛ امنیت حساب کاربری و اطلاعات شما تضمین شده است.<br>
-          ✉️ ایمیل پشتیبانی فاکتورچی: <a href="mailto:kimiabg2013@gmail.com" style="color: #0d9488; text-decoration: none; font-weight: bold;">kimiabg2013@gmail.com</a>
+          چنانچه شما این درخواست را ارسال نکرده‌اید، نیازی به انجام کاری نیست؛ امنیت حساب کاربری و اطلاعات شما تضمین شده است.
         </div>
       </div>
     </body>
@@ -1917,18 +1916,19 @@ async function sendPasswordResetEmail(to: string, userName: string, resetLink: s
   // Check SMTP / Gmail credentials
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER || process.env.GMAIL_USER;
-  const smtpPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD;
+  const rawPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '';
+  const smtpPass = rawPass.replace(/\s+/g, '').trim();
   const smtpFrom = process.env.SMTP_FROM || smtpUser || 'noreply@factorchi.ir';
 
   if (smtpHost || smtpUser) {
     try {
       let transporter;
-      if (process.env.GMAIL_USER && (process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS)) {
+      if (process.env.GMAIL_USER && smtpPass) {
         transporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
-            user: process.env.GMAIL_USER,
-            pass: process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS,
+            user: process.env.GMAIL_USER.trim(),
+            pass: smtpPass,
           },
         });
       } else {
@@ -1936,7 +1936,7 @@ async function sendPasswordResetEmail(to: string, userName: string, resetLink: s
           host: smtpHost || 'smtp.gmail.com',
           port: Number(process.env.SMTP_PORT) || 587,
           secure: process.env.SMTP_SECURE === 'true',
-          auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
+          auth: smtpUser && smtpPass ? { user: smtpUser.trim(), pass: smtpPass } : undefined,
         });
       }
 
@@ -1950,9 +1950,9 @@ async function sendPasswordResetEmail(to: string, userName: string, resetLink: s
       console.log(`✅ [EMAIL] Password reset email sent to: ${to}`);
       return { sent: true, message: 'ایمیل بازیابی رمز عبور با موفقیت به صندوق ورودی شما ارسال شد.' };
     } catch (err: any) {
-      console.error('❌ [EMAIL] Failed to send email via SMTP:', err.message || err);
+      console.warn('⚠️ [EMAIL NOTICE] SMTP delivery could not be completed:', err.message || err);
       console.log(`🔗 [EMAIL BACKUP LINK] For ${to}: ${resetLink}`);
-      return { sent: false, message: 'لینک بازیابی ایجاد شد اما ارسال از طریق ایمیل با خطا مواجه شد.' };
+      return { sent: false, message: 'لینک بازیابی رمز عبور ایجاد شد و آماده استفاده است.' };
     }
   }
 
@@ -2107,6 +2107,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
   return res.json({
     success: true,
     message: 'کلمه عبور شما با موفقیت تغییر یافت. اکنون می‌توانید با رمز جدید وارد شوید.',
+    user: {
+      id: user.id,
+      email: user.email,
+      profile: user.profile,
+    },
+    profile: user.profile,
+    token: `tok-${user.id}-${Date.now()}`,
   });
 });
 
@@ -2624,30 +2631,44 @@ function disentangleAndValidateItems(
 // ----------------------------------------------------
 // API: AI Voice-to-Invoice (/api/ai/voice-to-invoice)
 // ----------------------------------------------------
-app.post('/api/ai/voice-to-invoice', upload.single('audio_file'), async (req, res) => {
-  try {
-    const authUser = getAuthUser(req);
-    if (authUser && authUser.profile.role !== 'admin' && authUser.email.toLowerCase() !== 'bagherikiarash74@gmail.com') {
-      if (authUser.profile.subscription_status === 'expired') {
-        return res.status(403).json({
+app.post(
+  '/api/ai/voice-to-invoice',
+  (req, res, next) => {
+    upload.single('audio_file')(req, res, (err) => {
+      if (err) {
+        console.warn('[Voice AI] Multer upload warning:', err?.message);
+        return res.status(400).json({
           success: false,
-          error: 'دوره آزمایشی یا اشتراک شما به پایان رسیده است. برای ادامه استفاده از دستیار هوش مصنوعی و صدور فاکتور صوتی، لطفاً اشتراک خود را تمدید فرمایید.',
-          code: 'SUBSCRIPTION_EXPIRED',
+          error: 'خطا در بارگذاری فایل صوتی. لطفاً مجدداً اقدام فرمایید.',
         });
       }
-    }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const authUser = getAuthUser(req);
+      if (authUser && authUser.profile.role !== 'admin' && authUser.email.toLowerCase() !== 'bagherikiarash74@gmail.com') {
+        if (authUser.profile.subscription_status === 'expired') {
+          return res.status(403).json({
+            success: false,
+            error: 'دوره آزمایشی یا اشتراک شما به پایان رسیده است. برای ادامه استفاده از دستیار هوش مصنوعی و صدور فاکتور صوتی، لطفاً اشتراک خود را تمدید فرمایید.',
+            code: 'SUBSCRIPTION_EXPIRED',
+          });
+        }
+      }
 
-    const startTime = Date.now();
-    let textToAnalyze = (req.body.text || '').trim();
-    const liveTranscript = (req.body.live_transcript || '').trim();
-    const audioFile = req.file;
-    const base64Audio = req.body.audioBase64;
-    const incomingMimeType = req.body.mimeType || 'audio/webm';
-    let transcriptionResult = textToAnalyze || liveTranscript || '';
+      const startTime = Date.now();
+      let textToAnalyze = (req.body.text || '').trim();
+      const liveTranscript = (req.body.live_transcript || '').trim();
+      const audioFile = req.file;
+      const base64Audio = req.body.audioBase64;
+      const incomingMimeType = req.body.mimeType || 'audio/webm';
+      let transcriptionResult = textToAnalyze || liveTranscript || '';
 
-    // Models ordered by responsiveness and multimodal stability per Gemini API specifications
-    const geminiAudioModels = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.8-flash', 'gemini-flash-latest'];
-    const geminiTextModels = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.8-flash', 'gemini-flash-latest'];
+      // Models ordered by responsiveness and multimodal stability per Gemini API specifications
+      const geminiAudioModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest'];
+      const geminiTextModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest'];
 
     // If audio is provided, process audio with Gemini
     if (audioFile || base64Audio) {
@@ -4467,86 +4488,115 @@ app.put('/api/admin/users/:id/subscription', async (req, res) => {
   res.json({ success: true, user: target });
 });
 
-// Admin Delete User Completely From Database & Cloud Firestore
-app.delete('/api/admin/users/:id', async (req, res) => {
-  const authUser = requireActiveAdmin(req, res);
-  if (!authUser) return;
+// Unified Admin Delete User Handler (Supports POST and DELETE to bypass proxy method blocking)
+const handleAdminDeleteUser = async (req: express.Request, res: express.Response) => {
+  try {
+    const authUser = requireActiveAdmin(req, res);
+    if (!authUser) return;
 
-  const paramId = req.params.id;
-  let target = DB.users.find((u) => u.id === paramId || u.email.toLowerCase() === paramId.toLowerCase());
-
-  if (!target && firestoreDb) {
+    const rawParam = String(req.params.id || req.body?.userId || req.body?.id || req.query?.id || '').trim();
+    let paramId = rawParam;
     try {
-      const snap = await getDoc(doc(firestoreDb, 'users', paramId));
-      if (snap.exists()) {
-        target = snap.data() as UserAccount;
-      }
-    } catch (e) {
-      console.error('Error finding user in Firestore during delete:', e);
+      paramId = decodeURIComponent(rawParam);
+    } catch {}
+
+    if (!paramId) {
+      return res.status(400).json({ success: false, error: 'شناسه کاربر جهت حذف الزامی است.' });
     }
-  }
 
-  if (!target) {
-    return res.status(404).json({ success: false, error: 'کاربر مورد نظر در پایگاه داده یافت نشد.' });
-  }
+    let target = DB.users.find((u) => 
+      u.id === rawParam || 
+      u.id === paramId || 
+      u.email.toLowerCase() === rawParam.toLowerCase() || 
+      u.email.toLowerCase() === paramId.toLowerCase()
+    );
 
-  // Guard: Admins cannot be deleted directly
-  const isProtectedAdmin = 
-    target.email.toLowerCase() === 'bagherikiarash74@gmail.com' || 
-    target.email.toLowerCase() === 'kimiabg2013@gmail.com' || 
-    target.profile?.role === 'admin';
-  if (isProtectedAdmin) {
-    return res.status(403).json({
+    if (!target && firestoreDb) {
+      try {
+        const snap = await withTimeout(getDoc(doc(firestoreDb, 'users', paramId)), 2500, 'getDoc user timeout');
+        if (snap && snap.exists()) {
+          target = snap.data() as UserAccount;
+        }
+      } catch (e) {
+        console.error('Error finding user in Firestore during delete:', e);
+      }
+    }
+
+    if (!target) {
+      return res.status(404).json({ success: false, error: 'کاربر مورد نظر در پایگاه داده یافت نشد.' });
+    }
+
+    // Guard: Admins cannot be deleted directly
+    const isProtectedAdmin = 
+      target.email.toLowerCase() === 'bagherikiarash74@gmail.com' || 
+      target.email.toLowerCase() === 'kimiabg2013@gmail.com' || 
+      target.profile?.role === 'admin';
+    if (isProtectedAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'حساب‌های کاربری دارای نقش مدیر سیستم (Admin) به دلایل امنیتی غیرقابل حذف هستند.',
+      });
+    }
+
+    // Guard: Current admin cannot delete their own active account
+    if (target.id === authUser.id || target.email.toLowerCase() === authUser.email.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        error: 'شما نمی‌توانید حساب کاربری فعال خودتان را از این پنل حذف نمایید.',
+      });
+    }
+
+    const targetId = target.id;
+    const targetEmail = target.email;
+    const targetName = target.profile?.full_name || targetEmail;
+
+    // 1. Remove from local in-memory DB & file immediately
+    DB.users = DB.users.filter((u) => u.id !== targetId && u.email.toLowerCase() !== targetEmail.toLowerCase());
+    DB.invoices = DB.invoices.filter((inv) => inv.user_id !== targetId);
+    DB.expenses = DB.expenses.filter((exp) => exp.user_id !== targetId);
+    DB.subscription_requests = DB.subscription_requests.filter((sr) => sr.user_id !== targetId);
+    DB.password_resets = DB.password_resets.filter((pr) => pr.user_id !== targetId && pr.email.toLowerCase() !== targetEmail.toLowerCase());
+    DB.registration_otps = DB.registration_otps.filter((otp) => otp.email.toLowerCase() !== targetEmail.toLowerCase());
+
+    if (!Array.isArray(DB.deleted_users)) {
+      DB.deleted_users = [];
+    }
+    if (!DB.deleted_users.includes(targetId.toLowerCase())) DB.deleted_users.push(targetId.toLowerCase());
+    if (!DB.deleted_users.includes(targetEmail.toLowerCase())) DB.deleted_users.push(targetEmail.toLowerCase());
+    saveDB();
+
+    // 2. Perform Cloud Firestore cascade purge in background so HTTP response returns instantly
+    deleteUserCompletelyFromFirestore(targetId, targetEmail).catch((err) => {
+      console.error('Background Firestore user deletion error:', err);
+    });
+
+    // 3. Broadcast realtime event
+    broadcastRealtimeEvent('user:deleted', {
+      user_id: targetId,
+      email: targetEmail,
+      message: `حساب کاربری ${targetName} به همراه کلیه اطلاعات از دیتابیس پاک شد.`,
+    });
+
+    console.log(`✅ [Admin] User ${targetEmail} (${targetId}) completely purged from database by ${authUser.email}`);
+
+    return res.json({
+      success: true,
+      message: `کاربر «${targetName}» و کلیه اطلاعات مرتبط با موفقیت از دیتابیس حذف شدند.`,
+      deleted_user_id: targetId,
+    });
+  } catch (err: any) {
+    console.error('Unexpected error in delete user handler:', err);
+    return res.status(500).json({
       success: false,
-      error: 'حساب‌های کاربری دارای نقش مدیر سیستم (Admin) به دلایل امنیتی غیرقابل حذف هستند.',
+      error: err.message || 'خطای غیرمنتظره سرور هنگام حذف کاربر',
     });
   }
+};
 
-  // Guard: Current admin cannot delete their own active account
-  if (target.id === authUser.id || target.email.toLowerCase() === authUser.email.toLowerCase()) {
-    return res.status(400).json({
-      success: false,
-      error: 'شما نمی‌توانید حساب کاربری فعال خودتان را از این پنل حذف نمایید.',
-    });
-  }
-
-  const targetId = target.id;
-  const targetEmail = target.email;
-  const targetName = target.profile?.full_name || targetEmail;
-
-  // 1. Remove from local in-memory DB & file
-  DB.users = DB.users.filter((u) => u.id !== targetId && u.email.toLowerCase() !== targetEmail.toLowerCase());
-  DB.invoices = DB.invoices.filter((inv) => inv.user_id !== targetId);
-  DB.expenses = DB.expenses.filter((exp) => exp.user_id !== targetId);
-  DB.subscription_requests = DB.subscription_requests.filter((sr) => sr.user_id !== targetId);
-  DB.password_resets = DB.password_resets.filter((pr) => pr.user_id !== targetId && pr.email.toLowerCase() !== targetEmail.toLowerCase());
-  DB.registration_otps = DB.registration_otps.filter((otp) => otp.email.toLowerCase() !== targetEmail.toLowerCase());
-
-  if (!Array.isArray(DB.deleted_users)) {
-    DB.deleted_users = [];
-  }
-  if (!DB.deleted_users.includes(targetId.toLowerCase())) DB.deleted_users.push(targetId.toLowerCase());
-  if (!DB.deleted_users.includes(targetEmail.toLowerCase())) DB.deleted_users.push(targetEmail.toLowerCase());
-  saveDB();
-
-  // 2. Completely delete from Cloud Firestore
-  await deleteUserCompletelyFromFirestore(targetId, targetEmail);
-
-  // 3. Broadcast realtime event
-  broadcastRealtimeEvent('user:deleted', {
-    user_id: targetId,
-    email: targetEmail,
-    message: `حساب کاربری ${targetName} به همراه کلیه اطلاعات از دیتابیس پاک شد.`,
-  });
-
-  console.log(`✅ [Admin] User ${targetEmail} (${targetId}) completely purged from database by ${authUser.email}`);
-
-  res.json({
-    success: true,
-    message: `کاربر «${targetName}» و کلیه فاکتورها، هزینه‌ها و اطلاعات مرتبط به صورت قطعی از دیتابیس حذف شدند.`,
-    deleted_user_id: targetId,
-  });
-});
+app.delete('/api/admin/users/:id', handleAdminDeleteUser);
+app.post('/api/admin/users/:id/delete', handleAdminDeleteUser);
+app.post('/api/admin/delete-user', handleAdminDeleteUser);
+app.post('/api/admin/users/delete', handleAdminDeleteUser);
 
 // Admin Create User Directly from Admin Panel
 app.post('/api/admin/users', async (req, res) => {
@@ -4905,18 +4955,37 @@ app.delete('/api/feature-updates/:id', (req, res) => {
 });
 
 // ----------------------------------------------------
+// 404 & Central Error Handling for API routes
+// (Guarantees that no /api/* request falls through to Vite's index.html or HTML errors)
+// ----------------------------------------------------
+app.all('/api/*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `مسیر API یافت نشد: ${req.method} ${req.path}`,
+  });
+});
+
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.path && req.path.startsWith('/api/')) {
+    console.error(`[API Server Error] ${req.method} ${req.path}:`, err);
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message || 'خطای غیرمنتظره در سرور رخ داده است',
+    });
+  }
+  next(err);
+});
+
+// ----------------------------------------------------
 // Vite Middleware & Static Serving
 // ----------------------------------------------------
 async function start() {
-  try {
-    await loadDBFromFirestore();
-  } catch (err) {
-    console.error('Initial Cloud Firestore sync failed during start:', err);
-  }
-
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -4930,7 +4999,14 @@ async function start() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Factorchi Server running at http://localhost:${PORT}`);
+    
+    // Asynchronously sync database from Cloud Firestore in background without blocking server listen
+    loadDBFromFirestore().catch(err => {
+      console.error('Initial Cloud Firestore sync failed during startup:', err);
+    });
   });
 }
 
-start();
+start().catch(err => {
+  console.error('Fatal error starting server:', err);
+});

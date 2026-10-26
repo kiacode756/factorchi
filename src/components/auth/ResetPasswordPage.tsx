@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle, ArrowRight, KeyRound, Mic, ShieldCheck, Mail } from 'lucide-react';
+import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle, ArrowRight, KeyRound, Mic, ShieldCheck } from 'lucide-react';
 import { ThemeToggle } from '../ThemeToggle';
 
 interface ResetPasswordPageProps {
@@ -295,18 +295,7 @@ export const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
       </div>
 
       {/* Footer info */}
-      <footer className="text-center py-4 text-xs font-medium text-slate-400 dark:text-slate-500 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
-        <a
-          href="mailto:kimiabg2013@gmail.com"
-          className="text-teal-600 dark:text-teal-400 hover:underline inline-flex items-center gap-1 transition-colors"
-          dir="ltr"
-          title="پشتیبانی فاکتورچی"
-        >
-          <Mail className="w-3.5 h-3.5" />
-          <span>kimiabg2013@gmail.com</span>
-          <span className="font-sans text-slate-400 dark:text-slate-500">(پشتیبانی)</span>
-        </a>
-        <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
+      <footer className="text-center py-4 text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center justify-center">
         <span>this website powered by KIARASH</span>
       </footer>
     </div>

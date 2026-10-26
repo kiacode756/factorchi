@@ -8,6 +8,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
+    <script>
+      // Gracefully ignore Vite dev WebSocket / HMR connection warnings in preview environment
+      window.addEventListener('error', function(event) {
+        if (event && (event.message?.includes('WebSocket') || event.message?.includes('createWebSocketModuleRunnerTransport') || event.filename?.includes('@vite/client'))) {
+          event.stopImmediatePropagation();
+          event.preventDefault();
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(event) {
+        const reason = String(event?.reason || '');
+        if (reason.includes('WebSocket') || reason.includes('createWebSocketModuleRunnerTransport')) {
+          event.stopImmediatePropagation();
+          event.preventDefault();
+        }
+      }, true);
+    </script>
   </head>
   <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased min-h-screen selection:bg-teal-500/20 selection:text-teal-700 dark:selection:text-teal-300">
     <div id="root"></div>

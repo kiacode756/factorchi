@@ -1,50 +1,71 @@
 {
   "users": [
     {
-      "password": "admin1234",
-      "updated_at": "2026-09-20T18:59:04.064Z",
+      "updated_at": "2026-10-26T16:37:22.358Z",
+      "email": "bagherikiarash74@gmail.com",
       "id": "usr-admin",
+      "password": "KIARASH1386",
       "profile": {
-        "created_at": "2026-08-14T18:04:27.586Z",
-        "subscription_status": "active",
-        "role": "admin",
-        "full_name": "کیارش باقری",
+        "sheba_number": "",
         "card_holder_name": "کیارش باقری",
-        "tour_completed": true,
-        "updated_at": "2026-09-14T13:45:23.600Z",
-        "card_number": "6219861406993534",
+        "updated_at": "2026-10-26T16:29:56.196Z",
         "account_number": "",
         "default_notes": "",
-        "sheba_number": "",
-        "id": "usr-admin",
-        "subscription_expires_at": null,
-        "bank_name": "سامان",
-        "email": "bagherikiarash74@gmail.com",
+        "phone": "09130481639",
         "business_name": "web development",
-        "phone": "09130481639"
-      },
-      "email": "bagherikiarash74@gmail.com"
+        "full_name": "کیارش باقری",
+        "email": "bagherikiarash74@gmail.com",
+        "id": "usr-admin",
+        "subscription_status": "active",
+        "created_at": "2026-08-14T18:04:27.586Z",
+        "tour_completed": true,
+        "role": "admin",
+        "bank_name": "سامان",
+        "subscription_expires_at": null,
+        "card_number": "6219861406993534"
+      }
     },
     {
-      "email": "kimiabg2013@gmail.com",
-      "profile": {
-        "subscription_expires_at": null,
-        "subscription_status": "active",
-        "card_holder_name": "کیمیا باقری",
-        "phone": "09130481639",
-        "id": "usr-kimia-admin",
-        "bank_name": "سامان",
-        "email": "kimiabg2013@gmail.com",
-        "full_name": "کیمیا باقری",
-        "card_number": "",
-        "business_name": "استودیو طراحی و توسعه کیارش",
-        "created_at": "2026-09-03T18:04:27.586Z",
-        "role": "admin",
-        "updated_at": "2026-09-13T18:04:27.586Z"
-      },
       "id": "usr-kimia-admin",
-      "updated_at": "2026-09-20T18:59:04.162Z",
-      "password": "admin1234"
+      "password": "admin1234",
+      "profile": {
+        "card_holder_name": "کیمیا باقری",
+        "subscription_status": "active",
+        "id": "usr-kimia-admin",
+        "card_number": "",
+        "created_at": "2026-09-03T18:04:27.586Z",
+        "full_name": "کیمیا باقری",
+        "email": "kimiabg2013@gmail.com",
+        "updated_at": "2026-09-13T18:04:27.586Z",
+        "phone": "09130481639",
+        "subscription_expires_at": null,
+        "role": "admin",
+        "business_name": "استودیو طراحی و توسعه کیارش",
+        "bank_name": "سامان"
+      },
+      "email": "kimiabg2013@gmail.com",
+      "updated_at": "2026-10-26T16:37:22.586Z"
+    },
+    {
+      "id": "usr-1789931046496",
+      "email": "testotp_verifier@example.com",
+      "profile": {
+        "trial_started_at": "2026-09-20T19:04:06.496Z",
+        "trial_ends_at": "2026-09-21T19:04:06.496Z",
+        "updated_at": "2026-09-22T01:45:05.981Z",
+        "role": "user",
+        "tour_completed": false,
+        "business_name": "کسب‌وکار من",
+        "created_at": "2026-09-20T19:04:06.496Z",
+        "full_name": "تست کاربری",
+        "email": "testotp_verifier@example.com",
+        "id": "usr-1789931046496",
+        "phone": "09121111111",
+        "subscription_expires_at": "2026-09-21T19:04:06.496Z",
+        "subscription_status": "expired"
+      },
+      "password": "password123",
+      "updated_at": "2026-09-22T01:45:05.981Z"
     }
   ],
   "invoices": [],
@@ -59,62 +80,87 @@
     "usr-1789120469913",
     "sample_client_test@gmail.com",
     "usr-1789844019998",
-    "testuser_1789844019975@example.com"
+    "testuser_1789844019975@example.com",
+    "usr-1793032342166",
+    "test_delete_me@example.com",
+    "usr-1793032484845",
+    "delete_test_verified@factorchi.ir",
+    "usr-1793032805674",
+    "post_delete_test@factorchi.ir"
   ],
   "expenses": [],
   "subscription_requests": [],
   "feature_updates": [
     {
-      "actionTab": "settings",
-      "ai_generated": true,
-      "badgeColor": "teal",
+      "actionText": "مشاهده تنظیمات بانکی",
       "created_at": "2026-09-01T07:45:00.000Z",
-      "date": "شهریور ۱۴۰۵",
-      "id": "english-card-numbers",
+      "ai_generated": true,
       "description": "خوانایی بی‌نقص شماره کارت بانکی با ارقام انگلیسی، قالب‌بندی ۴ رقمی چپ به راست (LTR) و کپی تمیز جهت جلوگیری از به‌هم‌ریختگی و سهولت واریز مشتریان.",
+      "actionTab": "settings",
+      "date": "شهریور ۱۴۰۵",
+      "icon": "zap",
       "title": "نمایش استاندارد و انگلیسی شماره کارت در صفحه پرداخت",
       "badge": "بهبود پرداخت",
-      "actionText": "مشاهده تنظیمات بانکی",
-      "icon": "zap"
+      "id": "english-card-numbers",
+      "badgeColor": "teal"
     },
     {
-      "id": "gemini-voice-v2",
-      "actionTab": "new-invoice",
-      "icon": "mic",
-      "created_at": "2026-08-31T09:03:22.461Z",
-      "badgeColor": "teal",
-      "ai_generated": true,
-      "description": "پردازش مستقیم ویس‌های ضبط‌شده با هوش مصنوعی جمنای؛ تفکیک خودکار اقلام، مقادیر، درصد تخفیف و نام مشتری با دقت بالا.",
-      "actionText": "امتحان صدور صوتی",
-      "date": "شهریور ۱۴۰۵",
       "badge": "جدید",
-      "title": "صدور فوق‌دقیق فاکتور با صوت (هوش مصنوعی Gemini)"
+      "id": "gemini-voice-v2",
+      "title": "صدور فوق‌دقیق فاکتور با صوت (هوش مصنوعی Gemini)",
+      "icon": "mic",
+      "date": "شهریور ۱۴۰۵",
+      "created_at": "2026-08-31T09:03:22.461Z",
+      "actionText": "امتحان صدور صوتی",
+      "badgeColor": "teal",
+      "description": "پردازش مستقیم ویس‌های ضبط‌شده با هوش مصنوعی جمنای؛ تفکیک خودکار اقلام، مقادیر، درصد تخفیف و نام مشتری با دقت بالا.",
+      "actionTab": "new-invoice",
+      "ai_generated": true
     },
     {
-      "badge": "ارتقا",
-      "title": "تأیید سریع فیش و تسویه لحظه‌ای فاکتورها",
-      "date": "شهریور ۱۴۰۵",
-      "actionTab": "invoices",
-      "badgeColor": "emerald",
+      "actionText": "مدیریت فاکتورها",
       "created_at": "2026-08-31T09:03:22.461Z",
       "description": "مشاهده آنلاین تصویر فیش پرداختی مشتریان و تأیید یا رد با یک کلیک، همگام با به‌روزرسانی آنی دریافتی‌های امروز در داشبورد.",
-      "actionText": "مدیریت فاکتورها",
-      "ai_generated": true,
+      "id": "instant-payment-verify",
+      "actionTab": "invoices",
       "icon": "shield",
-      "id": "instant-payment-verify"
+      "date": "شهریور ۱۴۰۵",
+      "badge": "ارتقا",
+      "title": "تأیید سریع فیش و تسویه لحظه‌ای فاکتورها",
+      "ai_generated": true,
+      "badgeColor": "emerald"
     },
     {
-      "description": "محاسبه دقیق حاشیه سود خالص، تفکیک هزینه‌های جاری و مقایسه هوشمند عملکرد فروش ماهانه نسبت به ماه قبل.",
-      "id": "pnl-analytics",
-      "title": "داشبورد پیشرفته سود و زیان و تحلیل مالی",
-      "badge": "امکانات مالی",
       "date": "شهریور ۱۴۰۵",
-      "ai_generated": true,
-      "created_at": "2026-08-31T09:03:22.461Z",
       "icon": "chart",
-      "badgeColor": "indigo"
+      "title": "داشبورد پیشرفته سود و زیان و تحلیل مالی",
+      "badgeColor": "indigo",
+      "badge": "امکانات مالی",
+      "id": "pnl-analytics",
+      "description": "محاسبه دقیق حاشیه سود خالص، تفکیک هزینه‌های جاری و مقایسه هوشمند عملکرد فروش ماهانه نسبت به ماه قبل.",
+      "created_at": "2026-08-31T09:03:22.461Z",
+      "ai_generated": true
     }
   ],
-  "password_resets": [],
+  "password_resets": [
+    {
+      "id": "rst-1793032041825",
+      "user_id": "usr-admin",
+      "email": "bagherikiarash74@gmail.com",
+      "token": "27b48ecd9aebd62a2169122497fb6118092f48aef7b44c9721e0189f9b2df118",
+      "expires_at": "2026-10-26T17:27:21.825Z",
+      "used": true,
+      "created_at": "2026-10-26T16:27:21.825Z"
+    },
+    {
+      "id": "rst-1793032047162",
+      "user_id": "usr-admin",
+      "email": "bagherikiarash74@gmail.com",
+      "token": "d6b080cfa6975b63786d32aa352e9719fa9ad41dce3faff3adf0910f1eb720b5",
+      "expires_at": "2026-10-26T17:27:27.162Z",
+      "used": true,
+      "created_at": "2026-10-26T16:27:27.162Z"
+    }
+  ],
   "registration_otps": []
 }

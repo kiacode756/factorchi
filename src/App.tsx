@@ -107,6 +107,15 @@ export default function App() {
       if (path.includes('/auth/reset-password') || params.get('token')) {
         return 'reset-password';
       }
+      if (path.includes('/auth/forgot-password')) {
+        return 'forgot-password';
+      }
+      if (path.includes('/auth/register')) {
+        return 'register';
+      }
+      if (path.includes('/auth/login')) {
+        return 'login';
+      }
     }
     const savedAuth = safeStorage.getItem('factorchi_auth');
     const savedUser = safeStorage.getItem('factorchi_user');
@@ -936,6 +945,7 @@ export default function App() {
         <ForgotPasswordPage
           darkMode={darkMode}
           onToggleDarkMode={toggleDarkMode}
+          onLoginSuccess={handleLoginSuccess}
           onNavigateToLogin={() => {
             setAuthView('login');
             window.history.pushState({}, '', '/auth/login');

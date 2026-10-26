@@ -40,6 +40,7 @@ import {
 import { SubscriptionRequest, Profile, FeatureUpdate } from '../types';
 import { formatToman, toPersianDigits, formatPersianDate, fetchWithRetry } from '../lib/utils';
 import { ReceiptImageHoverZoom } from './ReceiptImageViewer';
+import { safeStorage } from '../lib/safeStorage';
 
 interface AdminUserItem {
   id: string;
@@ -67,12 +68,18 @@ export const AdminPayments: React.FC<AdminPaymentsProps> = ({
   const adminUserId = profile?.id || 'usr-admin';
   const adminUserEmail = profile?.email || 'bagherikiarash74@gmail.com';
 
-  const getAdminAuthHeaders = () => ({
-    'x-user-id': adminUserId,
-    'x-user-email': adminUserEmail,
-    'Authorization': `Bearer ${adminUserId}`,
-    'Content-Type': 'application/json',
-  });
+  const getAdminAuthHeaders = () => {
+    let savedToken = adminUserId;
+    try {
+      savedToken = safeStorage.getItem('factorchi_token') || adminUserId;
+    } catch {}
+    return {
+      'x-user-id': adminUserId,
+      'x-user-email': adminUserEmail,
+      'Authorization': `Bearer ${savedToken}`,
+      'Content-Type': 'application/json',
+    };
+  };
 
   // Main View: requests vs users_view vs feature_updates
   const [adminView, setAdminView] = useState<'requests' | 'users_view' | 'feature_updates'>('requests');
@@ -213,7 +220,7 @@ export const AdminPayments: React.FC<AdminPaymentsProps> = ({
     if (!selectedUserToEdit) return;
     setIsSavingUser(true);
     try {
-      const res = await fetch(`/api/admin/users/${selectedUserToEdit.id}/subscription`, {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(selectedUserToEdit.id)}/subscription`, {
         method: 'PUT',
         headers: getAdminAuthHeaders(),
         body: JSON.stringify({
@@ -224,7 +231,14 @@ export const AdminPayments: React.FC<AdminPaymentsProps> = ({
           extend_from_now: editExtendFromNow,
         }),
       });
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = {};
+      if (contentType.includes('application/json')) {
+        data = await res.json().catch(() => ({}));
+      } else {
+        const text = await res.text().catch(() => '');
+        data = { success: res.ok, error: res.ok ? undefined : (text.slice(0, 150) || `خطای سرور (${res.status})`) };
+      }
       if (data.success && data.user) {
         setActionSuccess(`وضعیت اشتراک و سطح دسترسی «${data.user.profile?.full_name || data.user.email}» با موفقیت ذخیره و در سیستم اعمال شد.`);
         setUsersList(prev =>
@@ -258,12 +272,27 @@ export const AdminPayments: React.FC<AdminPaymentsProps> = ({
   const handleConfirmDeleteUser = async () => {
     if (!userToDelete) return;
     setIsDeletingUser(true);
+    setActionError(null);
     try {
-      const res = await fetch(`/api/admin/users/${userToDelete.id}`, {
-        method: 'DELETE',
+      // Use POST /api/admin/delete-user to prevent 403 Forbidden proxy/WAF blocks on HTTP DELETE method
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
         headers: getAdminAuthHeaders(),
+        body: JSON.stringify({ userId: userToDelete.id }),
       });
-      const data = await res.json();
+
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = {};
+      if (contentType.includes('application/json')) {
+        data = await res.json().catch(() => ({}));
+      } else {
+        const text = await res.text().catch(() => '');
+        data = {
+          success: res.ok,
+          error: res.ok ? undefined : (text.slice(0, 150) || `خطای سرور (${res.status})`),
+        };
+      }
+
       if (data.success) {
         setActionSuccess(data.message || `کاربر با موفقیت از کل پایگاه داده حذف گردید.`);
         setUsersList((prev) => prev.filter((u) => u.id !== userToDelete.id));
